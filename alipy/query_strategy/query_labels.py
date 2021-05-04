@@ -15,6 +15,10 @@ import copy
 import os
 
 import numpy as np
+import torch
+from toma import toma
+from tqdm.auto import tqdm
+
 from sklearn.ensemble import BaggingClassifier
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
@@ -26,6 +30,7 @@ from sklearn.utils.multiclass import unique_labels
 from .base import BaseIndexQuery
 from ..utils.ace_warnings import *
 from ..utils.misc import nsmallestarg, randperm, nlargestarg
+from . import joint_entropy
 
 __all__ = ['QueryInstanceUncertainty',
            'QueryRandom',
@@ -1951,3 +1956,91 @@ class QueryInstanceDensityWeighted(BaseIndexQuery):
         assert len(pat) == len(div) == len(unlabel_index)
         scores = np.multiply(pat, div)
         return np.asarray(unlabel_index)[nlargestarg(scores, batch_size)]
+
+
+class QueryInstanceBatchBALD(BaseIndexQuery):
+    def __init__(self, X=None, y=None):
+        super(QueryInstanceBatchBALD, self).__init__(X, y)
+        
+    def select(self, label_index, unlabel_index, model=None, batch_size=1):
+        assert (batch_size > 0)
+        assert (isinstance(unlabel_index, collections.Iterable))
+        unlabel_index = np.asarray(unlabel_index)
+        if len(unlabel_index) <= batch_size:
+            return unlabel_index
+
+        if self.X is None:
+            raise Exception('Data matrix is not provided, use select_by_prediction_mat() instead.')
+        if model is None:
+            model = LogisticRegression(solver='liblinear')
+            model.fit(self.X[label_index if isinstance(label_index, (list, np.ndarray)) else label_index.index],
+                      self.y[label_index if isinstance(label_index, (list, np.ndarray)) else label_index.index])
+        unlabel_x = self.X[unlabel_index, :]
+        pred = model.predict_proba(unlabel_x)
+        pred_tensor = torch.Tensor(pred)[:,None,:]
+        
+        num_samples = 1 + 5
+        n = pred_tensor.shape[0]
+        if n > 1:
+            num_samples = pred_tensor.shape[2] ** (n-1) + 5
+        
+        return unlabel_index[self.get_batchbald_batch(pred_tensor.log().double(), batch_size, num_samples, 
+                                                 dtype=torch.double)]
+
+    def get_batchbald_batch(self, log_probs_N_K_C: torch.Tensor, batch_size: int, num_samples: int, dtype=None, device=None):
+        N, K, C = log_probs_N_K_C.shape
+    
+        batch_size = min(batch_size, N)
+    
+        candidate_indices = []
+        candidate_scores = []
+    
+        if batch_size == 0:
+            return CandidateBatch(candidate_scores, candidate_indices)
+    
+        conditional_entropies_N = self.compute_conditional_entropy(log_probs_N_K_C)
+    
+        batch_joint_entropy = joint_entropy.DynamicJointEntropy(
+            num_samples, batch_size - 1, K, C, dtype=dtype, device=device
+        )
+    
+        # We always keep these on the CPU.
+        scores_N = torch.empty(N, dtype=torch.double, pin_memory=torch.cuda.is_available())
+    
+        for i in tqdm(range(batch_size), desc="BatchBALD", leave=False):
+            if i > 0:
+                latest_index = candidate_indices[-1]
+                batch_joint_entropy.add_variables(log_probs_N_K_C[latest_index : latest_index + 1])
+    
+            shared_conditinal_entropies = conditional_entropies_N[candidate_indices].sum()
+    
+            batch_joint_entropy.compute_batch(log_probs_N_K_C, output_entropies_B=scores_N)
+    
+            scores_N -= conditional_entropies_N + shared_conditinal_entropies
+            scores_N[candidate_indices] = -float("inf")
+    
+            candidate_score, candidate_index = scores_N.max(dim=0)
+    
+            candidate_indices.append(candidate_index.item())
+            candidate_scores.append(candidate_score.item())
+    
+        return candidate_indices
+    
+    
+    def compute_conditional_entropy(self, log_probs_N_K_C: torch.Tensor) -> torch.Tensor:
+        N, K, C = log_probs_N_K_C.shape
+    
+        entropies_N = torch.empty(N, dtype=torch.double)
+    
+        pbar = tqdm(total=N, desc="Conditional Entropy", leave=False)
+    
+        @toma.execute.chunked(log_probs_N_K_C, 1024)
+        def compute(log_probs_n_K_C, start: int, end: int):
+            nats_n_K_C = log_probs_n_K_C * torch.exp(log_probs_n_K_C)
+    
+            entropies_N[start:end].copy_(-torch.sum(nats_n_K_C, dim=(1, 2)) / K)
+            pbar.update(end - start)
+    
+        pbar.close()
+    
+        return entropies_N
