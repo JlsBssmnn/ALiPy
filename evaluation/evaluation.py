@@ -1,3 +1,10 @@
+import numpy as np
+import copy
+from os import listdir
+from os.path import isfile, isdir, join
+from alipy import ToolBox
+from alipy.experiment import StateIO, ExperimentAnalyser
+
 def run_experiment(X,y,strategies=["QueryInstanceUncertainty"],num_splits=5,num_of_queries=20,batch_size=1,
                     test_ratio=0.3, initial_label_rate=0.1, saving_path=None, show_results=True):
     n_strategies = len(strategies)
@@ -68,3 +75,27 @@ def run_experiment(X,y,strategies=["QueryInstanceUncertainty"],num_splits=5,num_
             analyser.add_method(method_name=strategies[i][13:], method_results=results[i])
         print(analyser)
         analyser.plot_learning_curves(title='AL results', std_area=True)
+
+
+def plot_results_from_directory(directory):
+    if not isdir(directory):
+        raise ValueError("directory parameter must be a directory")
+    all_files = [f for f in listdir(directory) if isfile(join(directory, f)) and f.startswith("AL_round_")]
+    
+    results = []
+    strategies = list(set([s[s.rfind("_")+1:-4] for s in all_files]))
+    num_strategies = len(strategies)
+
+    for i in range(num_strategies):
+        current_strat_files = [s for s in all_files if s[s.rfind("_")+1:-4] == strategies[i]]
+        results.append([])
+        for stateIO_file_path in current_strat_files:
+            results[-1].append(StateIO.load(join(directory, stateIO_file_path)))
+
+    analyser = ExperimentAnalyser()
+    for i in range(num_strategies):
+        analyser.add_method(strategies[i], results[i])
+    print(analyser)
+    analyser.plot_learning_curves(title="Results", std_area=True, saving_path=None)
+
+plot_results("D:/Documents/Uni-Stuff/6. Semester/Iris/Iris")
