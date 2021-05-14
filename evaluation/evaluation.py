@@ -97,5 +97,3 @@ def plot_results_from_directory(directory):
         analyser.add_method(strategies[i], results[i])
     print(analyser)
     analyser.plot_learning_curves(title="Results", std_area=True, saving_path=None)
-
-plot_results("D:/Documents/Uni-Stuff/6. Semester/Iris/Iris")
