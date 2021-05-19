@@ -44,6 +44,7 @@ __all__ = ['QueryInstanceUncertainty',
            'QueryInstanceLAL',
            'QueryInstanceCoresetGreedy',
            'QueryInstanceDensityWeighted',
+           'QueryInstanceBatchBALD',
            ]
 
 

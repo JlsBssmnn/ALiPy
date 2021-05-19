@@ -1,5 +1,4 @@
 from .query_labels import *
-from .query_labels import QueryInstanceBatchBALD
 from .cost_sensitive import QueryCostSensitiveHALC, QueryCostSensitiveRandom, QueryCostSensitivePerformance
 from .multi_label import QueryMultiLabelQUIRE, QueryMultiLabelAUDI, QueryMultiLabelMMC, QueryMultiLabelAdaptive, QueryMultiLabelRandom
 from .noisy_oracles import QueryNoisyOraclesCEAL, QueryNoisyOraclesIEthresh, QueryNoisyOraclesAll, QueryNoisyOraclesRandom
