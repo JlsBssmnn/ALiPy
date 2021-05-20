@@ -1,5 +1,6 @@
 import random
 import numpy as np
+from tensorflow.keras.datasets import mnist
 
 class Iris:
     def getData(self):
@@ -31,4 +32,12 @@ class Iris:
         else:
             return -1
 
-print(Iris().getData()[0])
+
+class MNist:
+    def getData(self):
+        train, test = mnist.load_data()
+        X = np.concatenate((train[0], test[0]))
+        y = np.concatenate((train[1], test[1]))
+        X = X.reshape((70000, 784))
+
+        return X,y
