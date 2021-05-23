@@ -1963,9 +1963,10 @@ class QueryInstanceBatchBALD(BaseIndexQuery):
     def __init__(self, X=None, y=None):
         super(QueryInstanceBatchBALD, self).__init__(X, y)
         
-    def select(self, label_index, unlabel_index, model=None, batch_size=1, num_samples=None):
+    def select(self, label_index, unlabel_index, model=None, batch_size=1, num_samples=None, K=1):
         assert (batch_size > 0)
         assert (isinstance(unlabel_index, collections.Iterable))
+        assert K > 0
         unlabel_index = np.asarray(unlabel_index)
         if len(unlabel_index) <= batch_size:
             return unlabel_index
@@ -1977,9 +1978,18 @@ class QueryInstanceBatchBALD(BaseIndexQuery):
             model.fit(self.X[label_index if isinstance(label_index, (list, np.ndarray)) else label_index.index],
                       self.y[label_index if isinstance(label_index, (list, np.ndarray)) else label_index.index])
         unlabel_x = self.X[unlabel_index, :]
-        pred = model.predict_proba(unlabel_x)
-        pred_tensor = torch.Tensor(pred)[:,None,:]
-        
+
+        if K == 1:
+            pred = model.predict_proba(unlabel_x)
+            pred_tensor = torch.Tensor(pred)[:,None,:]
+        else:
+            pred = model.predict_proba(unlabel_x)
+            pred_tensor = torch.from_numpy(pred).float()
+            for _ in range(K-1):
+                pred = model.predict_proba(unlabel_x)
+                pred_tensor = torch.cat((pred_tensor, torch.from_numpy(pred).float()), dim=0)
+            pred_tensor = pred_tensor.reshape(-1, K, pred.shape[1])
+
         if num_samples == None:
             num_samples = pred.shape[2] ** batch_size
         
@@ -1995,7 +2005,7 @@ class QueryInstanceBatchBALD(BaseIndexQuery):
         candidate_scores = []
     
         if batch_size == 0:
-            return CandidateBatch(candidate_scores, candidate_indices)
+            return []
     
         conditional_entropies_N = self.compute_conditional_entropy(log_probs_N_K_C)
     
