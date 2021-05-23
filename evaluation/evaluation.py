@@ -15,7 +15,8 @@ class ExperimentRunner:
         self.alibox = ToolBox(X=X, y=y, saving_path=saving_path)
 
     def run_one_strategy(self, strategy,num_splits=5,num_of_queries=None,max_acquired_data=None,batch_size=1,
-                        test_ratio=0.3, initial_label_rate=0.1, model=None, file_name=None):
+                        test_ratio=0.3, initial_label_rate=0.1, model=None, file_name=None, reset_model=False,
+                        fit_strategy=None, custom_query_strat=None):
         self.alibox.split_AL(test_ratio=test_ratio, initial_label_rate=initial_label_rate, split_count=num_splits)
 
         if (num_of_queries == None and max_acquired_data == None) or (num_of_queries != None and max_acquired_data != None):
@@ -23,14 +24,16 @@ class ExperimentRunner:
         if num_of_queries == None:
             num_of_queries = int(np.ceil(max_acquired_data / batch_size))
 
+        model_copy = copy.deepcopy(model)
+
         for round in range(num_splits):
             train, test_idx, label_ind, unlab_ind = self.alibox.get_split(round)
             saver = self.alibox.get_stateio(round)
 
-            if model == None:
-                model = self.alibox.get_default_model()
-            model.fit(X=self.X[label_ind.index, :], y=self.y[label_ind.index])
-            pred = model.predict(self.X[test_idx, :])
+            if model_copy == None:
+                model_copy = self.alibox.get_default_model()
+            model_copy.fit(X=self.X[label_ind.index, :], y=self.y[label_ind.index])
+            pred = model_copy.predict(self.X[test_idx, :])
             accuracy = self.alibox.calc_performance_metric(y_true=self.y[test_idx], y_pred=pred, performance_metric='accuracy_score')
             saver.set_initial_point(accuracy)
 
@@ -44,13 +47,25 @@ class ExperimentRunner:
             stopping_criterion = self.alibox.get_stopping_criterion('num_of_queries', num_of_queries)
 
             while not stopping_criterion.is_stop():
-                select_ind = query_strategy.select(label_index=label_ind, unlabel_index=unlab_ind,
-                                                                batch_size=batch_size)
+                if custom_query_strat == None:
+                    select_ind = query_strategy.select(label_index=label_ind, unlabel_index=unlab_ind,
+                                                                batch_size=batch_size, model=model_copy)
+                else:
+                    select_ind = custom_query_strat(label_ind, unlab_ind, batch_size, model_copy, query_strategy)
+
                 label_ind.update(select_ind)
                 unlab_ind.difference_update(select_ind)
 
-                model.fit(X=self.X[label_ind.index, :], y=self.y[label_ind.index])
-                pred = model.predict(self.X[test_idx, :])
+                if reset_model:
+                    model_copy = copy.deepcopy(model)
+
+                # use the default fit strategy or the provided custom one
+                if fit_strategy == None:
+                    self.fit_strategy(model_copy, label_ind)
+                elif fit_strategy == "batchBALD":
+                    self.batchBALD_fit_strategy(model_copy, label_ind, test_idx)
+                
+                pred = model_copy.predict(self.X[test_idx, :])
                 accuracy = self.alibox.calc_performance_metric(y_true=self.y[test_idx],
                                                         y_pred=pred,
                                                         performance_metric='accuracy_score')
@@ -64,7 +79,34 @@ class ExperimentRunner:
                 stopping_criterion.update_information(saver)
             
             stopping_criterion.reset()
+            if reset_model:
+                model_copy = copy.deepcopy(model)
 
+    def fit_strategy(self, model, label_ind):
+        model.fit(X=self.X[label_ind.index, :], y=self.y[label_ind.index])
+
+    # described on page 6 of the paper
+    def batchBALD_fit_strategy(self, model, label_ind, test_idx):
+        max_epochs = 100
+        results = []
+        num_delines = 0
+        last_accuracy = -1
+
+        for _ in range(max_epochs):
+            model.fit(X=self.X[label_ind.index, :], y=self.y[label_ind.index])
+            pred = model.predict(self.X[test_idx, :])
+            accuracy = self.alibox.calc_performance_metric(y_true=self.y[test_idx],
+                                                    y_pred=pred,
+                                                    performance_metric='accuracy_score')
+            results.append((accuracy, copy.deepcopy(model)))
+            if accuracy < last_accuracy:
+                num_delines += 1
+            if num_delines >= 3:
+                break
+            last_accuracy = accuracy
+        
+        model = max(results, key=lambda x: x[0])[1]
+        
 
 class ExperimentPlotter:
     def plot_by_given_prefixes(self, directory, prefixes, labels=None, x_axis='num_of_queries', batch_size=None):
@@ -74,6 +116,14 @@ class ExperimentPlotter:
         grouped into one line. If a list of labels is provided the plot will use these as name for
         the lines instead of the prefixes. So it's required that 
         >>> len(prefixes) == len(labels)
+        
+        Parameters
+        ----------
+            directory: the directory that will be searched for files
+            prefixes: a list of strings
+            labels: labels for the plot lines
+            x_axis: either 'num_of_queries' (default) or 'labeled_data' for the metric on the x_axis
+            batch_size: only required for 'labeled_data', a list of the batch sizes corresponding to the files that match prefixes
         """
         if labels != None and len(prefixes) != len(labels):
             raise ValueError("it's required that len(prefixes) == len(labels)")
@@ -100,7 +150,6 @@ class ExperimentPlotter:
 
         directory = abspath(directory)
         all_files = [f for f in listdir(directory) if isfile(join(directory, f))]
-        # all_files = filter(lambda s: len([pre for pre in prefixes if s.startswith(pre)]) > 0, all_files)
         file_dict = dict()
         for file_name in all_files:
             for pre in prefixes:
