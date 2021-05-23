@@ -1963,7 +1963,7 @@ class QueryInstanceBatchBALD(BaseIndexQuery):
     def __init__(self, X=None, y=None):
         super(QueryInstanceBatchBALD, self).__init__(X, y)
         
-    def select(self, label_index, unlabel_index, model=None, batch_size=1):
+    def select(self, label_index, unlabel_index, model=None, batch_size=1, num_samples=None):
         assert (batch_size > 0)
         assert (isinstance(unlabel_index, collections.Iterable))
         unlabel_index = np.asarray(unlabel_index)
@@ -1980,10 +1980,8 @@ class QueryInstanceBatchBALD(BaseIndexQuery):
         pred = model.predict_proba(unlabel_x)
         pred_tensor = torch.Tensor(pred)[:,None,:]
         
-        num_samples = 1 + 5
-        n = pred_tensor.shape[0]
-        if n > 1:
-            num_samples = pred_tensor.shape[2] ** (n-1) + 5
+        if num_samples == None:
+            num_samples = pred.shape[2] ** batch_size
         
         return unlabel_index[self.get_batchbald_batch(pred_tensor.log().double(), batch_size, num_samples, 
                                                  dtype=torch.double)]
