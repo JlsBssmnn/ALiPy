@@ -71,4 +71,4 @@ def test_MNIST(batchsize, path, saving_path, k):
 
     runner = ExperimentRunner(X, y, saving_path)
     runner.run_one_strategy("QueryInstanceBatchBALD", 6, None, 250, batchsize, 1/7, 2/6000, model,
-                            "batchBALD_5batch", True, "batchBALD", query_strat)
+                            "batchBALD_" + str(batchsize) + "batch", True, "batchBALD", query_strat)
