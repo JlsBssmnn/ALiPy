@@ -51,7 +51,7 @@ class ExperimentRunner:
                     select_ind = query_strategy.select(label_index=label_ind, unlabel_index=unlab_ind,
                                                                 batch_size=batch_size, model=model_copy)
                 else:
-                    select_ind = custom_query_strat(label_ind, unlab_ind, batch_size, model_copy, query_strategy)
+                    select_ind = custom_query_strat.select(label_ind, unlab_ind, batch_size, model_copy, query_strategy)
 
                 label_ind.update(select_ind)
                 unlab_ind.difference_update(select_ind)

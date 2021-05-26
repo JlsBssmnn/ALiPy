@@ -7,68 +7,76 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-import torchbnn as bnn
 
-K = 1
-
-class BNN:
-
+class BayesianNet(nn.Module):
     def __init__(self):
-        # create the BNN
-        self.model = nn.Sequential(
-            bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=784, out_features=100),
-            nn.ReLU(),
-            bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=100, out_features=100),
-            nn.ReLU(),
-            bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=100, out_features=100),
-            nn.ReLU(),
-            bnn.BayesLinear(prior_mu=0, prior_sigma=0.1, in_features=100, out_features=10),
-            nn.Softmax(dim=0)
-        )
+        super().__init__()
 
-        # create loss function and optimizer
-        self.ce_loss = nn.CrossEntropyLoss()
-        self.kl_loss = bnn.BKLLoss(reduction='mean', last_layer_only=False)
-        self.kl_weight = 0.01
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=5)
+        self.conv1_drop = nn.Dropout(0.5)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=5)
+        self.conv2_drop = nn.Dropout(0.5)
+        self.fc1 = nn.Linear(1024, 128)
+        self.fc1_drop = nn.Dropout(0.5)
+        self.fc2 = nn.Linear(128, 10)
 
-        self.optimizer = optim.Adam(self.model.parameters(), lr=0.001)
+    def forward(self, input):
+        input = F.relu(F.max_pool2d(self.conv1_drop(self.conv1(input)), 2))
+        input = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(input)), 2))
+        input = input.view(-1, 1024)
+        input = F.relu(self.fc1_drop(self.fc1(input)))
+        input = self.fc2(input)
+        input = F.log_softmax(input, dim=1)
 
-    def fit(self, X, y):
-        X = torch.from_numpy(X).float()
+        return input
+
+class Model:
+
+    def __init__(self, net, batch_size=20):
+        self.net = net
+        self.net.train()
+        self.optimizer = optim.Adam(self.net.parameters(), lr=0.001)
+        self.loss = nn.NLLLoss()
+        self.batch_size = batch_size
+
+    def fit(self, X, y, epochs=50):
+        X = torch.from_numpy(X).reshape(-1,1,28,28).float()
         y = torch.from_numpy(y).long()
-
-        pre = self.model(X)
-        ce = self.ce_loss(pre, y)
-        kl = self.kl_loss(self.model)
-        cost = ce + self.kl_weight*kl
-        
-        self.optimizer.zero_grad()
-        cost.backward()
-        self.optimizer.step()
+ 
+        for _ in range(epochs):
+            for i in range(0, len(X), self.batch_size):
+                self.optimizer.zero_grad()
+                pre = self.net(X[i:i+self.batch_size])
+                loss = self.loss(pre, y[i:i+self.batch_size])
+                
+                loss.backward()
+                self.optimizer.step()
 
     def predict(self, X):
-        pred = self.model(torch.from_numpy(X).float())
+        pred = self.net(torch.from_numpy(X).reshape(-1,1,28,28).float())
         return pred.argmax(dim=1).detach().numpy()
 
     def predict_proba(self, X):
-        return self.model(torch.from_numpy(X).float()).detach().numpy()
+        return self.net(torch.from_numpy(X).reshape(-1,1,28,28).float()).detach().numpy()
 
 
-def query_strat(label_ind, unlab_ind, batch_size, model_copy, query_strategy):
-    global K
-    return query_strategy.select(label_ind, unlab_ind, model_copy, batch_size, 10000, K)
+class query_strat:
+    def __init__(self,K,num_samples):
+        self.K = K
+        self.num_samples = num_samples
+    
+    def select(self, label_ind, unlab_ind, batch_size, model_copy, query_strategy):
+        return query_strategy.select(label_ind, unlab_ind, model_copy, batch_size, self.num_samples, self.K)
 
 def test_MNIST(batchsize, path, saving_path, k):
     """
     path: directory where X and y of the MNIST dataset are stored (as pickle files)
     """
-    global K
-    K = k
     X = pickle.load(open(path + "/X.pkl", "rb"))
     y = pickle.load(open(path + "/y.pkl", "rb"))
 
-    model = BNN()
+    model = Model(BayesianNet())
 
     runner = ExperimentRunner(X, y, saving_path)
     runner.run_one_strategy("QueryInstanceBatchBALD", 6, None, 250, batchsize, 1/7, 2/6000, model,
-                            "batchBALD_" + str(batchsize) + "batch", True, "batchBALD", query_strat)
+                            "batchBALD_" + str(batchsize) + "batch", True, "batchBALD", query_strat(k,5000))
