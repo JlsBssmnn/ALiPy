@@ -6,7 +6,7 @@ from alipy import ToolBox
 from alipy.experiment import StateIO, ExperimentAnalyser
 from datetime import datetime
 import matplotlib.pyplot as plt
-import time
+from tqdm.auto import tqdm
 
 class ExperimentRunner:
     def __init__(self,X,y,saving_path=None):
@@ -16,8 +16,30 @@ class ExperimentRunner:
 
     def run_one_strategy(self, strategy,num_splits=5,num_of_queries=None,max_acquired_data=None,batch_size=1,
                         test_ratio=0.3, initial_label_rate=0.1, model=None, file_name=None, reset_model=False,
-                        fit_strategy=None, custom_query_strat=None):
+                        fit_strategy=None, custom_query_strat=None, device=None, equal_inst_per_class=False):
+        """
+            strategy: Name of the AL strategy that will be applied
+            num_splits: how many AL rounds will be performed, the result of each round will be saved in a seperate file
+            num_of_queries: the maximum number of queries until the round will end (max_acquired_data must be None)
+            max_acquired_data: how many datapoints will be queried until the round will end (num_of_queries must be None)
+            batch_size: the batch size of one query
+            test_ratio: the ratio of the dataset that will be used for testing
+            initial_label_rate: the ratio of the non test dataset that will be labeled at the beginning
+            model: the model that will be trained, used for accuracy measure and will be passed to the query strategy
+            file_name: the name for the files that will safe the results of the experiment 
+                        (the round number will be added to the name)
+            reset_model: if True the model will be reset in every query step
+            fit_strategy: the strategy that will be used to train the model
+            custom_query_strat: an object with select method that will be called when determining the datapoint that will
+                                be queried
+            device: the pytorch device
+            equal_inst_per_class: If True it will try to modify the labeled index at the beginning of each round to 
+                                  contain the same number of samples for each class
+        """
         self.alibox.split_AL(test_ratio=test_ratio, initial_label_rate=initial_label_rate, split_count=num_splits)
+
+        if equal_inst_per_class:
+            self.equalize_inst_per_class()
 
         if (num_of_queries == None and max_acquired_data == None) or (num_of_queries != None and max_acquired_data != None):
             raise ValueError("Either num_of_queries or max_acquired_data must be None and the other must not be None")
@@ -32,8 +54,17 @@ class ExperimentRunner:
 
             if model_copy == None:
                 model_copy = self.alibox.get_default_model()
-            model_copy.fit(X=self.X[label_ind.index, :], y=self.y[label_ind.index])
-            pred = model_copy.predict(self.X[test_idx, :])
+
+            if fit_strategy == None:
+                if device == None:
+                    model_copy.fit(X=self.X[label_ind.index, :], y=self.y[label_ind.index])
+                    pred = model_copy.predict(self.X[test_idx, :])
+                else:
+                    model_copy.fit(X=self.X[label_ind.index, :], y=self.y[label_ind.index], device=device)
+                    pred = model_copy.predict(self.X[test_idx, :], device=device)
+            elif fit_strategy == "batchBALD":
+                self.batchBALD_fit_strategy(model_copy, label_ind, test_idx, device=device)
+                pred = model_copy.predict(self.X[test_idx, :], device=device)
             accuracy = self.alibox.calc_performance_metric(y_true=self.y[test_idx], y_pred=pred, performance_metric='accuracy_score')
             saver.set_initial_point(accuracy)
 
@@ -51,7 +82,7 @@ class ExperimentRunner:
                     select_ind = query_strategy.select(label_index=label_ind, unlabel_index=unlab_ind,
                                                                 batch_size=batch_size, model=model_copy)
                 else:
-                    select_ind = custom_query_strat.select(label_ind, unlab_ind, batch_size, model_copy, query_strategy)
+                    select_ind = custom_query_strat.select(label_ind, unlab_ind, batch_size, model_copy, query_strategy, device=device)
 
                 label_ind.update(select_ind)
                 unlab_ind.difference_update(select_ind)
@@ -63,9 +94,12 @@ class ExperimentRunner:
                 if fit_strategy == None:
                     self.fit_strategy(model_copy, label_ind)
                 elif fit_strategy == "batchBALD":
-                    self.batchBALD_fit_strategy(model_copy, label_ind, test_idx)
+                    self.batchBALD_fit_strategy(model_copy, label_ind, test_idx, device)
                 
-                pred = model_copy.predict(self.X[test_idx, :])
+                if device == None:
+                    pred = model_copy.predict(self.X[test_idx, :])
+                else:
+                    pred = model_copy.predict(self.X[test_idx, :], device=device)
                 accuracy = self.alibox.calc_performance_metric(y_true=self.y[test_idx],
                                                         y_pred=pred,
                                                         performance_metric='accuracy_score')
@@ -86,26 +120,82 @@ class ExperimentRunner:
         model.fit(X=self.X[label_ind.index, :], y=self.y[label_ind.index])
 
     # described on page 6 of the paper
-    def batchBALD_fit_strategy(self, model, label_ind, test_idx):
-        max_epochs = 100
-        results = []
-        num_delines = 0
+    def batchBALD_fit_strategy(self, model, label_ind, test_idx, device=None):
+        max_epochs = 1000
+        num_declines = 0
         last_accuracy = -1
+        best_model = None
 
-        for _ in range(max_epochs):
-            model.fit(X=self.X[label_ind.index, :], y=self.y[label_ind.index])
-            pred = model.predict(self.X[test_idx, :])
+        for _ in tqdm(range(max_epochs), desc="Training Model", leave=False):
+            model.fit(X=self.X[label_ind.index, :], y=self.y[label_ind.index], device=device)
+            pred = model.predict(self.X[test_idx, :], device=device)
             accuracy = self.alibox.calc_performance_metric(y_true=self.y[test_idx],
                                                     y_pred=pred,
                                                     performance_metric='accuracy_score')
-            results.append((accuracy, copy.deepcopy(model)))
             if accuracy < last_accuracy:
-                num_delines += 1
-            if num_delines >= 3:
+                num_declines += 1
+            else:
+                best_model = copy.deepcopy(model)
+                num_declines = 0
+            if num_declines >= 3:
                 break
             last_accuracy = accuracy
         
-        model = max(results, key=lambda x: x[0])[1]
+        model = best_model
+
+    def equalize_inst_per_class(self):
+        train,_,label,_ = self.alibox.get_split()
+        length_of_label = len(label[0])
+        num_classes = len(np.unique(self.y))
+
+        if length_of_label % num_classes != 0:
+            print("Cannot equalize initial label state, because lenght of labeled index is not divisible by number of classes")
+            return
+
+        instances_per_class = length_of_label // num_classes
+        d = self.reset_dic(num_classes)
+
+        for split_round, label_round in enumerate(label):
+            labels = self.y[label_round]
+            
+            # check number of samples per class
+            for l in labels:
+                d[l] += 1
+            
+            # not all classes have the same number of instances
+            if max(d.values()) > instances_per_class:
+                for k,v in d.items():
+                    if v <= instances_per_class:
+                        continue
+                    replacements = v - instances_per_class
+                    i = 0
+                    while replacements > 0:
+                        if labels[i] == k:
+                            # find a class that has not enough instances
+                            replacement_label = list(dict(filter(lambda x: x[1] < instances_per_class, d.items())).keys())[0]
+                            
+                            # find an index of a sample that belongs to this class
+                            index = -1
+                            for ind in train[split_round]:
+                                if ind not in label_round and self.y[ind] == replacement_label:
+                                    index = ind
+                                    break
+                            assert index != -1, "didn't find an index in train_index to use for replacement"
+                            
+                            # replace the index and update the data structures
+                            label_round[i] = ind
+                            d[k] -= 1
+                            d[replacement_label] += 1
+                            replacements -= 1
+                                
+                        i += 1
+            d = self.reset_dic(num_classes)
+
+    def reset_dic(self, classes):
+        dic = dict()
+        for i in range(classes):
+            dic[i] = 0
+        return dic
         
 
 class ExperimentPlotter:

@@ -3,8 +3,11 @@ import numpy as np
 from tensorflow.keras.datasets import mnist
 
 class Iris:
-    def getData(self):
-        dataFile = open("././datasets/Iris/iris.data")
+    def getData(self, path=None):
+        if path == None:
+            dataFile = open("././datasets/Iris/iris.data")
+        else:
+            dataFile = open(path)
         X = np.ndarray(shape=(150,4))
         y = np.ndarray(shape=(150), dtype=int)
         i = 0
