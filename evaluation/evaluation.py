@@ -41,30 +41,24 @@ class ExperimentRunner:
         if equal_inst_per_class:
             self.equalize_inst_per_class()
 
-        if (num_of_queries == None and max_acquired_data == None) or (num_of_queries != None and max_acquired_data != None):
-            raise ValueError("Either num_of_queries or max_acquired_data must be None and the other must not be None")
-        if num_of_queries == None:
-            num_of_queries = int(np.ceil(max_acquired_data / batch_size))
-
-        model_copy = copy.deepcopy(model)
+        num_of_queries = self.calc_num_of_queries(num_of_queries, max_acquired_data, batch_size)
+        self.model = model
 
         for round in range(num_splits):
             train, test_idx, label_ind, unlab_ind = self.alibox.get_split(round)
             saver = self.alibox.get_stateio(round)
 
+            model_copy = copy.deepcopy(self.model)
             if model_copy == None:
                 model_copy = self.alibox.get_default_model()
 
-            if fit_strategy == None:
-                if device == None:
-                    model_copy.fit(X=self.X[label_ind.index, :], y=self.y[label_ind.index])
-                    pred = model_copy.predict(self.X[test_idx, :])
-                else:
-                    model_copy.fit(X=self.X[label_ind.index, :], y=self.y[label_ind.index], device=device)
-                    pred = model_copy.predict(self.X[test_idx, :], device=device)
-            elif fit_strategy == "batchBALD":
-                self.batchBALD_fit_strategy(model_copy, label_ind, test_idx, device=device)
+            model_copy = self.fit_strategy(model_copy, label_ind, fit_strategy, device)
+
+            if device == None:
+                pred = model_copy.predict(self.X[test_idx, :])
+            else:
                 pred = model_copy.predict(self.X[test_idx, :], device=device)
+
             accuracy = self.alibox.calc_performance_metric(y_true=self.y[test_idx], y_pred=pred, performance_metric='accuracy_score')
             saver.set_initial_point(accuracy)
 
@@ -78,23 +72,13 @@ class ExperimentRunner:
             stopping_criterion = self.alibox.get_stopping_criterion('num_of_queries', num_of_queries)
 
             while not stopping_criterion.is_stop():
-                if custom_query_strat == None:
-                    select_ind = query_strategy.select(label_index=label_ind, unlabel_index=unlab_ind,
-                                                                batch_size=batch_size, model=model_copy)
-                else:
-                    select_ind = custom_query_strat.select(label_ind, unlab_ind, batch_size, model_copy, query_strategy, device=device)
-
-                label_ind.update(select_ind)
-                unlab_ind.difference_update(select_ind)
+                select_ind = self.run_one_query(custom_query_strat, query_strategy, label_ind, unlab_ind, 
+                                                batch_size, model_copy, device)
 
                 if reset_model:
-                    model_copy = copy.deepcopy(model)
-
+                    model_copy = copy.deepcopy(self.model)
                 # use the default fit strategy or the provided custom one
-                if fit_strategy == None:
-                    self.fit_strategy(model_copy, label_ind)
-                elif fit_strategy == "batchBALD":
-                    self.batchBALD_fit_strategy(model_copy, label_ind, test_idx, device)
+                model_copy = self.fit_strategy(model_copy, label_ind, fit_strategy, device)
                 
                 if device == None:
                     pred = model_copy.predict(self.X[test_idx, :])
@@ -113,11 +97,17 @@ class ExperimentRunner:
                 stopping_criterion.update_information(saver)
             
             stopping_criterion.reset()
-            if reset_model:
-                model_copy = copy.deepcopy(model)
 
-    def fit_strategy(self, model, label_ind):
-        model.fit(X=self.X[label_ind.index, :], y=self.y[label_ind.index])
+    def fit_strategy(self, model, label_ind, test_idx, fit_strategy=None, device=None):
+        if fit_strategy == None:
+            if device == None:
+                model.fit(X=self.X[label_ind.index, :], y=self.y[label_ind.index])
+            else:
+                model.fit(X=self.X[label_ind.index, :], y=self.y[label_ind.index], device=device)
+        elif fit_strategy == "batchBALD":
+            model = self.batchBALD_fit_strategy(model, label_ind, test_idx, device=device)
+
+        return model
 
     # described on page 6 of the paper
     def batchBALD_fit_strategy(self, model, label_ind, test_idx, device=None):
@@ -141,10 +131,22 @@ class ExperimentRunner:
                 break
             last_accuracy = accuracy
         
-        model = best_model
+        return best_model
+
+    def run_one_query(self, custom_query_strat, query_strategy, label_ind, unlab_ind, batch_size, model_copy, device):
+        if custom_query_strat == None:
+            select_ind = query_strategy.select(label_index=label_ind, unlabel_index=unlab_ind,
+                                                        batch_size=batch_size, model=model_copy)
+        else:
+            select_ind = custom_query_strat.select(label_ind, unlab_ind, batch_size, model_copy, query_strategy, device=device)
+
+        label_ind.update(select_ind)
+        unlab_ind.difference_update(select_ind)
+
+        return select_ind
 
     def equalize_inst_per_class(self):
-        train,_,label,_ = self.alibox.get_split()
+        train,_,label,unlabel = self.alibox.get_split()
         length_of_label = len(label[0])
         num_classes = len(np.unique(self.y))
 
@@ -183,19 +185,36 @@ class ExperimentRunner:
                             assert index != -1, "didn't find an index in train_index to use for replacement"
                             
                             # replace the index and update the data structures
+                            old_index = label_round[i]
                             label_round[i] = ind
                             d[k] -= 1
                             d[replacement_label] += 1
                             replacements -= 1
+
+                            # update the unlabeled index
+                            for j in range(len(unlabel[split_round])):
+                                if unlabel[split_round][j] == ind:
+                                    break
+                            unlabel[split_round][j] = old_index
                                 
                         i += 1
             d = self.reset_dic(num_classes)
+        self.alibox.label_idx = label
+        self.alibox.unlabel_idx = unlabel
 
     def reset_dic(self, classes):
         dic = dict()
         for i in range(classes):
             dic[i] = 0
         return dic
+
+    def calc_num_of_queries(self, num_of_queries, max_acquired_data, batch_size):
+        if (num_of_queries == None and max_acquired_data == None) or (num_of_queries != None and max_acquired_data != None):
+            raise ValueError("Either num_of_queries or max_acquired_data must be None and the other must not be None")
+        if num_of_queries == None:
+            num_of_queries = int(np.ceil(max_acquired_data / batch_size))
+
+        return num_of_queries
         
 
 class ExperimentPlotter:
