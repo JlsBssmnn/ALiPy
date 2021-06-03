@@ -52,7 +52,7 @@ class ExperimentRunner:
             if model_copy == None:
                 model_copy = self.alibox.get_default_model()
 
-            model_copy = self.fit_strategy(model_copy, label_ind, fit_strategy, device)
+            model_copy = self.fit_strategy(model_copy, label_ind, test_idx, fit_strategy, device)
 
             if device == None:
                 pred = model_copy.predict(self.X[test_idx, :])
@@ -78,7 +78,7 @@ class ExperimentRunner:
                 if reset_model:
                     model_copy = copy.deepcopy(self.model)
                 # use the default fit strategy or the provided custom one
-                model_copy = self.fit_strategy(model_copy, label_ind, fit_strategy, device)
+                model_copy = self.fit_strategy(model_copy, label_ind, test_idx, fit_strategy, device)
                 
                 if device == None:
                     pred = model_copy.predict(self.X[test_idx, :])
@@ -114,6 +114,7 @@ class ExperimentRunner:
         max_epochs = 1000
         num_declines = 0
         last_accuracy = -1
+        best_accuracy = -1
         best_model = None
 
         for _ in tqdm(range(max_epochs), desc="Training Model", leave=False):
@@ -124,8 +125,9 @@ class ExperimentRunner:
                                                     performance_metric='accuracy_score')
             if accuracy < last_accuracy:
                 num_declines += 1
-            else:
+            elif accuracy > best_accuracy:
                 best_model = copy.deepcopy(model)
+                best_accuracy = accuracy
                 num_declines = 0
             if num_declines >= 3:
                 break
