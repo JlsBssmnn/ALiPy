@@ -304,6 +304,29 @@ class ExperimentPlotter:
         plt.legend(fancybox=True, framealpha=0.5)
         plt.show()
 
+    def plot_numpy_array(self, directory, file_names, num_queries=None):
+        if type(num_queries) == int:
+            num_queries = [num_queries]*len(file_names)
+        for i,name in enumerate(file_names):
+            data, std = self.get_numpy_array_data(directory+"/"+name+".npy",
+                        num_queries[i] if num_queries != None else None)
+            x_axis = np.arange(num_queries[i]+1 if num_queries != None else len(data), dtype=int)
+            plt.plot(x_axis, data, label=name)
+            plt.fill_between(x_axis, data+std, data-std, alpha=0.3)
+
+        plt.xlabel("Number of queries")
+        plt.ylabel("Target quality")
+        plt.title("Results")
+        plt.legend(fancybox=True, framealpha=0.5)
+        plt.show()
+
+    def get_numpy_array_data(self, path, num_queries=None):
+        array = np.load(path)
+        if num_queries == None:
+            return np.mean(array, axis=0), np.std(array, axis=0)
+        else:
+            return np.mean(array[:,:num_queries+1], axis=0), np.std(array[:,:num_queries+1], axis=0)
+
 
 def run_experiment(X,y,strategies=["QueryInstanceUncertainty"],num_splits=5,num_of_queries=20,batch_size=1,
                     test_ratio=0.3, initial_label_rate=0.1, saving_path=None, show_results=True):
