@@ -34,7 +34,7 @@ class StrategyLearner:
                 epsilon_start=1, epsilon_end=0.1, epsilon_step=1000, device=None):
         self.saving_path = saving_path + "/" + file_name
         self.batch_size = batch_size
-        self.udpate_rate = update_rate
+        self.update_rate = update_rate
         self.training_iterations = training_iterations
         self.episodes_per_iteration = episodes_per_iteration
         self.updates_per_iteration = updates_per_iteration
@@ -135,6 +135,8 @@ class StrategyLearner:
                     
             # NEURAL NETWORK UPDATES
             self.train_agent(self.updates_per_iteration)
+            if iteration % self.update_rate == 0:
+                self.agent.update_target_net()
 
         self.agent.save_net(self.saving_path)
 
