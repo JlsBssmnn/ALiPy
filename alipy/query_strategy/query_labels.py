@@ -1960,10 +1960,49 @@ class QueryInstanceDensityWeighted(BaseIndexQuery):
 
 
 class QueryInstanceBatchBALD(BaseIndexQuery):
+    """Reference Paper:
+        Andreas Kirsch, Joost van Amersfoort, Yarin Gal. 2019.
+        BatchBALD: Efficient and Diverse Batch Acquisition for Deep Bayesian Active Learning
+        https://arxiv.org/abs/1906.08158
+
+    The implementation is referred to
+    https://github.com/BlackHC/batchbald_redux
+
+    Parameters
+    ----------
+    X: 2D array, optional (default=None)
+        Feature matrix of the whole dataset. It is a reference which will not use additional memory.
+
+    y: array-like, optional (default=None)
+        Label matrix of the whole dataset. It is a reference which will not use additional memory.
+    """
     def __init__(self, X=None, y=None):
         super(QueryInstanceBatchBALD, self).__init__(X, y)
         
     def select(self, label_index, unlabel_index, model=None, batch_size=1, num_samples=None, device=None):
+        """
+        Parameters
+        ----------
+        label_index: {list, np.ndarray, IndexCollection}
+            The indexes of labeled samples.
+
+        unlabel_index: {list, np.ndarray, IndexCollection}
+            The indexes of unlabeled samples.
+
+        model: object, optional (default=None)
+            Classification model, should be a bayesian model and must have the 'predict_proba' method for probabilistic output.
+            If not provided, LogisticRegression with default parameters implemented by sklearn will be used.
+
+        batch_size: int, optional (default=1)
+            Selection batch size.
+
+        num_samples: int, optional (default=None)
+            the maximum amount of memory that is used for entropy calculation.
+
+        device: torch.device, optional (default=None)
+            pytorch device that will be used for the calculations, default is cpu.
+            if a cuda device is given, then the model must accept a device for the predict_proba method.
+        """
         assert (batch_size > 0)
         assert (isinstance(unlabel_index, collections.Iterable))
         unlabel_index = np.asarray(unlabel_index)
@@ -1978,7 +2017,10 @@ class QueryInstanceBatchBALD(BaseIndexQuery):
                       self.y[label_index if isinstance(label_index, (list, np.ndarray)) else label_index.index])
         unlabel_x = self.X[unlabel_index, :]
 
-        pred = model.predict_proba(unlabel_x, device)
+        if device != None:
+            pred = model.predict_proba(unlabel_x, device)
+        else:
+            pred = model.predict_proba(unlabel_x)
         
         if len(pred.shape) == 2:
             # assuming first dim is num of samples and second dim is num of classes

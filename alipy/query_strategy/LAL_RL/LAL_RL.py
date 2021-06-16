@@ -14,10 +14,30 @@ from tqdm import tqdm
 import torch
 
 
-class StrategyLearner:
+class LAL_RL_StrategyLearner:
+    """Reference Paper:
+        Ksenia Konyushkova, Raphael Sznitman, Pascal Fua, 2018.
+        Discovering General-Purpose Active Learning Strategies.
+        https://arxiv.org/abs/1810.04114
+
+    The implementation is referred to
+    https://github.com/ksenia-konyushkova/LAL-RL
+    """
     def __init__(self, path, possible_dataset_names, n_state_estimation=30, size=-1, subset=-1,
                  quality_method=metrics.accuracy_score, tolerance_level=0.98, model=None,
                  replay_buffer_size = 1e4, prioritized_replay_exponent = 3) :
+        """
+        path: the directory that contains the datasets
+        possible_dataset_names = the name of the datasets that will be used for training
+        n_state_estimation: how many datapoints are used to represent a state
+        size: An integer indicating the size of training dataset to sample, if -1 use all data
+        subset: An integer indicating what subset of data to use. 0: even, 1: odd, -1: all datapoints
+        quality_method: the measure that will be used for the target quality
+        tolerance_level: the ratio of the target quality that the agent has to achieve to end an episode
+        model: the model that is used to make predictions on the datasets, should implement fit, predict and predict_proba
+        replay_buffer_size: An interger indicating the maximum number of transaction to be stored in the replay buffer
+        prioritized_replay_exponent: A float that is used for turning the td error into a probability to be sampled
+        """
         dataset = DatasetUCI(possible_dataset_names, n_state_estimation=n_state_estimation, subset=subset,
                              size=size,path=path)
         if model == None:
@@ -29,9 +49,26 @@ class StrategyLearner:
 
 
     def train_query_strategy(self, saving_path, file_name, warm_start_episodes=128, nn_updates_per_warm_start=100,
-                n_state_estimation=30, learning_rate=1e-3, batch_size=32, gamma=0.999, update_rate=100,
+                learning_rate=1e-3, batch_size=32, gamma=0.999, update_rate=100,
                 training_iterations=1000, episodes_per_iteration=10, updates_per_iteration=60,
                 epsilon_start=1, epsilon_end=0.1, epsilon_step=1000, device=None):
+        """
+        saving_path: the directory where the learnt strategy will be saved
+        file_name: the file name for the learnt strategy
+        warm_start_episodes: the number of warm start episodes that will be performed before the actual training
+        nn_updates_per_warm_start: the number of q-network updates after the warm-start-episodes
+        learning_rate: the learning rate of the deep q-network
+        batch_size: the size of the batches that will be sampled from replay memory for one q-network update
+        gamma: the discount factor in q-learning
+        update_rate: the amount of iterations after which the weights of the q-network will be copied to the target network
+        training_iterations: the amount of training iterations
+        episodes_per_iteration: the amount of episodes in one training iteration
+        updates_per_iteration: the number of q-network updates that are performed at the end of an iteration
+        epsilon_start: the start value of epsilon for the epsilon greedy strategy
+        epsilon_end: the end value of epsilon for the epsilon greedy strategy
+        epsilon_step: the number of iterations it takes for the epsilon value to decay from start value to end value
+        device: pytorch device that will be used for the computations
+        """
         self.saving_path = saving_path + "/" + file_name
         self.batch_size = batch_size
         self.update_rate = update_rate
@@ -43,7 +80,7 @@ class StrategyLearner:
         self.epsilon_step = epsilon_step
 
         bias_average = self.run_warm_start_episodes(warm_start_episodes)
-        self.agent = Agent(n_state_estimation, learning_rate, batch_size, bias_average,
+        self.agent = Agent(self.n_state_estimation, learning_rate, batch_size, bias_average,
                gamma, device)
         self.train_agent(nn_updates_per_warm_start)
         self.run_training_iterations()
@@ -93,8 +130,6 @@ class StrategyLearner:
 
 
     def run_training_iterations(self):
-        i_episode = 0
-
         for iteration in tqdm(range(self.training_iterations), desc="Train iterations"):
             # GENERATE NEW EPISODES
             # Compute epsilon value according to the schedule.
@@ -104,9 +139,6 @@ class StrategyLearner:
                 # Reset the environment to start a new episode.
                 classifier_state, next_action_state = self.env.reset()
                 terminal = False
-                # Keep track of stats of episode to analyse it in tensorboard.
-                episode_reward = 0
-                episode_duration = 0
                 # Run an episode.
                 while not terminal:
                     # Let an agent choose an action or with epsilon probability, take a random action.
@@ -128,10 +160,6 @@ class StrategyLearner:
                                                 terminal)
                     # Change a state of environment.
                     classifier_state = next_classifier_state
-                    # Keep track of stats and add summaries to tensorboard.
-                    episode_reward += reward
-                    episode_duration += 1
-                i_episode += 1
                     
             # NEURAL NETWORK UPDATES
             self.train_agent(self.updates_per_iteration)
@@ -139,10 +167,34 @@ class StrategyLearner:
                 self.agent.update_target_net()
 
         self.agent.save_net(self.saving_path)
+        self.agent.save_target_net(self.saving_path)
 
 
 
 class QueryInstanceLAL_RL(BaseIndexQuery):
+    """This class uses a strategy that was learnt by LAL_RL_StrategyLearner.
+
+    Parameters
+    ----------
+    X: 2D array,
+        Feature matrix of the whole dataset. It is a reference which will not use additional memory.
+
+    y: array-like,
+        Label matrix of the whole dataset. It is a reference which will not use additional memory.
+
+    model_path: file-like object or string or os.PathLike object,
+        state_dict of the trained strategy
+
+    n_state_estimation: int, optional (default=None)
+        number of datapoints used by the strategy to build the state, if None is provided an inference is attempted
+
+    pre_batch: int, optional (default=128)
+        batch size that is used when predicting with the learnt strategy
+
+    device: torch.device, optional (default=None)
+        the pytorch device used for the calculations
+    
+    """
     def __init__(self, X, y, model_path, n_state_estimation=None, pred_batch=128, device=None):
         super(QueryInstanceLAL_RL, self).__init__(X, y)
         state_dict = torch.load(model_path, map_location=device)

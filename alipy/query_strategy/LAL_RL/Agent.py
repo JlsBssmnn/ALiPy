@@ -102,4 +102,7 @@ class Agent:
         self.target_net.load_state_dict(self.net.state_dict())
     
     def save_net(self, path):
-        torch.save(self.net.state_dict(), path)
+        torch.save(self.net.state_dict(), path + ".pt")
+
+    def save_target_net(self, path):
+        torch.save(self.target_net.state_dict(), path + "_target_net.pt")
