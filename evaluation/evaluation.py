@@ -304,7 +304,7 @@ class ExperimentPlotter:
         plt.legend(fancybox=True, framealpha=0.5)
         plt.show()
 
-    def plot_numpy_array(self, directory, file_names, num_queries=None):
+    def plot_numpy_array(self, directory, file_names, num_queries=None, fill="std"):
         if type(num_queries) == int:
             num_queries = [num_queries]*len(file_names)
         for i,name in enumerate(file_names):
@@ -312,7 +312,11 @@ class ExperimentPlotter:
                         num_queries[i] if num_queries != None else None)
             x_axis = np.arange(num_queries[i]+1 if num_queries != None else len(data), dtype=int)
             plt.plot(x_axis, data, label=name)
-            plt.fill_between(x_axis, data+std, data-std, alpha=0.3)
+            if fill == "std":
+                plt.fill_between(x_axis, data+std, data-std, alpha=0.3)
+            elif fill == "standard_error":
+                std /= np.sqrt(data.shape[0])
+                plt.fill_between(x_axis, data+std, data-std, alpha=0.3)
 
         plt.xlabel("Number of queries")
         plt.ylabel("Target quality")

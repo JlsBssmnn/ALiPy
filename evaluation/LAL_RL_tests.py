@@ -6,7 +6,7 @@ from tqdm.auto import tqdm
 import numpy as np
 
      
-def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio=0.2, num_of_queries=100):
+def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio=0.2, init_lab=2, num_of_queries=100):
     """
     save_path: directory where the result will be saved
     save_name: name for the saved file
@@ -14,6 +14,7 @@ def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio
     strategy_name: alipy query strategy that will used
     rounds: how many AL rounds will be performed
     test_ratio: the ratio of data that will be used for testing, the initial labeled size is alway 2
+    init_lab: int, the number of samples that will be labeled initially
     num_of_queries: how many queries will be performed
     """
     data = pickle.load(open(path, "rb"))
@@ -22,8 +23,8 @@ def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio
 
     alibox = ToolBox(X=X, y=y, query_type='AllLabels', saving_path=None)
 
-    # always label 2 samples at beginning
-    ini_lab_ratio = 2/(len(y)*(1-test_ratio))
+    # label init_lab samples at beginning
+    ini_lab_ratio = init_lab/(len(y)*(1-test_ratio))
 
     alibox.split_AL(test_ratio=test_ratio, initial_label_rate=ini_lab_ratio, split_count=rounds)
         
