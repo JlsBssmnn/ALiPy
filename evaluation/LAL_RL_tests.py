@@ -2,11 +2,12 @@ import copy
 from alipy import ToolBox
 import pickle
 from tqdm.auto import tqdm
+from alipy.query_strategy import QueryInstanceLAL_RL
 
 import numpy as np
 
      
-def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio=0.2, init_lab=2, num_of_queries=100):
+def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio=0.2, init_lab=2, num_of_queries=100, **kwargs):
     """
     save_path: directory where the result will be saved
     save_name: name for the saved file
@@ -35,7 +36,14 @@ def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio
     stopping_criterion = alibox.get_stopping_criterion('num_of_queries', num_of_queries)
         
     # Use pre-defined strategy
-    strategy = alibox.get_query_strategy(strategy_name)
+    if strategy_name == "QueryInstanceLAL_RL":
+        strategy = QueryInstanceLAL_RL(X=X, y=y,
+                                       model_path=kwargs.get('model_path'),
+                                       n_state_estimation=kwargs.get('n_state_estimation'),
+                                       pred_batch=kwargs.get('pred_batch', 128),
+                                       device=kwargs.get('device'))
+    else:
+        strategy = alibox.get_query_strategy(strategy_name)
 
     quality_results = np.empty((rounds,num_of_queries + 2))
 
