@@ -109,7 +109,19 @@ class ReplayBuffer:
         p = np.power(td_errors_to_consider, self.prior_exp) / np.sum(np.power(td_errors_to_consider, self.prior_exp))
         # choose indeces to sample according to the computed probability: 
         # the higher the td error is, the more likely it is that the sample will be selected
-        minibatch_indices = np.random.choice(range(self.n), size=batch_size, replace=False, p=p)
+        # first check if the number of non-zero elements in p is smaller than the batch_size
+        non_zero = np.count_nonzero(p)
+        if non_zero < batch_size <= self.n:
+            minibatch_indices = np.random.choice(range(self.n), size=non_zero, replace=False, p=p)
+            # add the missing elements
+            missing_elements = batch_size - non_zero
+            while missing_elements > 0:
+                num = np.random.choice(range(self.n))
+                if not num in minibatch_indices:
+                    minibatch_indices = np.concatenate((minibatch_indices, [num]))
+                    missing_elements -= 1
+        else:
+            minibatch_indices = np.random.choice(range(self.n), size=batch_size, replace=False, p=p)
         minibatch = Minibatch(
             self.all_classifier_states[minibatch_indices],
             self.all_action_state[minibatch_indices],
