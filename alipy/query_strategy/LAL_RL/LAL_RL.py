@@ -1,3 +1,4 @@
+from shutil import copy
 from .envs import LalEnvTargetAccuracy
 from .datasets import DatasetUCI
 from .helpers import ReplayBuffer
@@ -83,6 +84,46 @@ class LAL_RL_StrategyLearner:
         self.agent = Agent(self.n_state_estimation, learning_rate, batch_size, bias_average,
                gamma, device)
         self.train_agent(nn_updates_per_warm_start)
+        self.run_training_iterations()
+
+
+    def continue_training(self, saving_path, file_name, net_path, target_net_path=None, learning_rate=1e-3, batch_size=32,
+                gamma=0.999, update_rate=100, training_iterations=1000, episodes_per_iteration=10, updates_per_iteration=60,
+                epsilon_start=1, epsilon_end=0.1, epsilon_step=1000, device=None):
+        """
+        net_path: the path to the q-network that has already been trained and shall now be further trained
+        target_net_path: the corresponding target net if None then a copy of the net will be used as target net
+
+        the other parameters are exactly the same as in train_query_strategy
+        """
+        state_dict = torch.load(net_path, map_location=device)
+
+        if target_net_path != None:
+            target_state_dict = torch.load(target_net_path, map_location=device)
+        else:
+            target_state_dict = copy.deepcopy(state_dict)
+
+        # test if given n_state_estimation matches the one of the loaded state_dict
+        if self.n_state_estimation != state_dict[list(state_dict.keys())[0]].size(1):
+            raise ValueError("given n_state_estimation doesn't match the one of the loaded state_dict")
+        # test if n_state_estimation of net and target net are the same
+        if state_dict[list(state_dict.keys())[0]].size(1) != state_dict[list(target_state_dict.keys())[0]].size(1):
+            raise ValueError("n_state_estimation of net and target net are not the same")
+
+        self.saving_path = saving_path + "/" + file_name
+        self.batch_size = batch_size
+        self.update_rate = update_rate
+        self.training_iterations = training_iterations
+        self.episodes_per_iteration = episodes_per_iteration
+        self.updates_per_iteration = updates_per_iteration
+        self.epsilon_start = epsilon_start
+        self.epsilon_end = epsilon_end
+        self.epsilon_step = epsilon_step
+
+        self.agent = Agent(self.n_state_estimation, learning_rate, batch_size, 0,
+               gamma, device)
+        self.agent.net.load_state_dict(state_dict)
+        self.agent.target_net.load_state_dict(target_state_dict)
         self.run_training_iterations()
 
 
