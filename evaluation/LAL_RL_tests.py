@@ -3,11 +3,12 @@ from alipy import ToolBox
 import pickle
 from tqdm.auto import tqdm
 from alipy.query_strategy import QueryInstanceLAL_RL
+from sklearn import svm
 
 import numpy as np
 
      
-def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio=0.2, init_lab=2, num_of_queries=100, **kwargs):
+def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio=0.2, init_lab=2, num_of_queries=100, model=None, **kwargs):
     """
     save_path: directory where the result will be saved
     save_name: name for the saved file
@@ -17,6 +18,7 @@ def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio
     test_ratio: the ratio of data that will be used for testing, the initial labeled size is alway 2
     init_lab: int, the number of samples that will be labeled initially
     num_of_queries: how many queries will be performed
+    kwargs: parameters for the LAL_RL strategy
     """
     data = pickle.load(open(path, "rb"))
     X,y = data['X'], data['y']
@@ -30,7 +32,10 @@ def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio
     alibox.split_AL(test_ratio=test_ratio, initial_label_rate=ini_lab_ratio, split_count=rounds)
         
     # Use the default Logistic Regression classifier
-    model = alibox.get_default_model()
+    if model == None:
+        model = alibox.get_default_model()
+    elif model.upper() == "SVM":
+        model = svm.SVC()
         
     # The cost budget is 50 times querying
     stopping_criterion = alibox.get_stopping_criterion('num_of_queries', num_of_queries)
