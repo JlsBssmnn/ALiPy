@@ -180,6 +180,8 @@ class LAL_RL_StrategyLearner:
                 # Reset the environment to start a new episode.
                 classifier_state, next_action_state = self.env.reset()
                 terminal = False
+                max_steps = len(self.env.dataset.train_labels)
+                progress_bar = tqdm(total=max_steps, desc=self.env.dataset.dataset_name, leave=False)
                 # Run an episode.
                 while not terminal:
                     # Let an agent choose an action or with epsilon probability, take a random action.
@@ -201,7 +203,8 @@ class LAL_RL_StrategyLearner:
                                                 terminal)
                     # Change a state of environment.
                     classifier_state = next_classifier_state
-                    
+                    progress_bar.update()
+                progress_bar.close()
             # NEURAL NETWORK UPDATES
             self.train_agent(self.updates_per_iteration)
             if iteration % self.update_rate == 0:

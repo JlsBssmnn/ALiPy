@@ -26,6 +26,7 @@ class Dataset:
         self.test_data = np.array([[]])
         self.test_labels = np.array([[]])
         self.n_state_estimation = n_state_estimation
+        self.dataset_name = ""
         self.regenerate()
         
     def regenerate(self):
@@ -77,9 +78,9 @@ class DatasetUCI(Dataset):
     def regenerate(self):
         """Loads the data and split it into train and test."""
         # every time we select one of the possible datasets to sample data from
-        dataset_name = np.random.choice(self.possible_names)
+        self.dataset_name = np.random.choice(self.possible_names)
         # load data
-        data = pkl.load( open( self.path+"/"+dataset_name+".p", "rb" ) )
+        data = pkl.load( open( self.path+"/"+self.dataset_name+".p", "rb" ) )
         X = data['X']
         y = data['y']
         dtst_size = np.size(y)
