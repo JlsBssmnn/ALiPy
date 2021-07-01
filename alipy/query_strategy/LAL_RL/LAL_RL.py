@@ -253,12 +253,18 @@ class QueryInstanceLAL_RL(BaseIndexQuery):
         self.net.to(device)
         self.net.eval()
 
+    def initialize_state(self, unlabled_index):
+        assert len(unlabled_index) > self.n_state_estimation, "not enough data for state representation and for querying"
+        chosen_indices = np.random.choice(len(unlabled_index), size=self.n_state_estimation, replace=False)
+        self.state_indices = np.array(unlabled_index.index)[chosen_indices]
+        [unlabled_index.discard(x) for x in self.state_indices]
+        return unlabled_index
+
     def select(self, label_index, unlabel_index, model=None, batch_size=1):
         assert (batch_size > 0)
         assert (isinstance(unlabel_index, collections.Iterable))
         if len(unlabel_index) <= batch_size:
             return unlabel_index
-        assert len(unlabel_index) > self.n_state_estimation
         unlabel_index = np.asarray(unlabel_index)
 
         # initialize the model and train it if necessary
@@ -266,12 +272,8 @@ class QueryInstanceLAL_RL(BaseIndexQuery):
             model = LogisticRegression()
             model.fit(self.X[label_index], self.y[label_index])
         
-        # set aside some unlabeled data for the state representation
-        state_indices = np.random.choice(len(unlabel_index), size=self.n_state_estimation, replace=False)
-        unlabel_index = unlabel_index[np.array([x for x in range(len(unlabel_index)) if x not in state_indices])]
-
         # create the state
-        predictions = model.predict_proba(self.X[state_indices])[:,0]
+        predictions = model.predict_proba(self.X[self.state_indices])[:,0]
         predictions = np.array(predictions)
         idx = np.argsort(predictions)
         state = predictions[idx]

@@ -46,7 +46,7 @@ def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio
                                        model_path=kwargs.get('model_path'),
                                        n_state_estimation=kwargs.get('n_state_estimation'),
                                        pred_batch=kwargs.get('pred_batch', 128),
-                                       device=kwargs.get('device'))
+                                       device=kwargs.get('device', None))
     else:
         strategy = alibox.get_query_strategy(strategy_name)
 
@@ -59,6 +59,10 @@ def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio
         train_idx, test_idx, label_ind, unlab_ind = alibox.get_split(round)
         # Get intermediate results saver for one fold experiment
         saver = alibox.get_stateio(round, verbose=False)
+
+        # if LAL_RL is used then initialize the state representation
+        if strategy_name == "QueryInstanceLAL_RL":
+            unlab_ind = strategy.initialize_state(unlab_ind)
         
         # Set initial performance point
         model_copy = copy.deepcopy(model)
