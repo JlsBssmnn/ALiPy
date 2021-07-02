@@ -267,8 +267,9 @@ class QueryInstanceLAL_RL(BaseIndexQuery):
             model.fit(self.X[label_index], self.y[label_index])
         
         # set aside some unlabeled data for the state representation
-        state_indices = np.random.choice(len(unlabel_index), size=self.n_state_estimation, replace=False)
-        unlabel_index = unlabel_index[np.array([x for x in range(len(unlabel_index)) if x not in state_indices])]
+        chosen_indices = np.random.choice(len(unlabel_index), size=self.n_state_estimation, replace=False)
+        state_indices = unlabel_index[chosen_indices]
+        unlabel_index = unlabel_index[np.array([x for x in range(len(unlabel_index)) if x not in chosen_indices])]
 
         # create the state
         predictions = model.predict_proba(self.X[state_indices])[:,0]
