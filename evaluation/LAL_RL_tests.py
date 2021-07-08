@@ -38,9 +38,6 @@ def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio
     elif model.upper() == "SVM":
         model = svm.SVC()
         
-    # set the number of queries
-    stopping_criterion = alibox.get_stopping_criterion('num_of_queries', num_of_queries)
-        
     # initialize either an LAL_RL strategy or another ALiPy strategy
     if strategy_name == "QueryInstanceLAL_RL":
         strategy = QueryInstanceLAL_RL(X=X, y=y,
@@ -61,8 +58,6 @@ def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio
         j = 0
         # Get the data split
         train_idx, test_idx, label_ind, unlab_ind = alibox.get_split(round)
-        # the saver is only used to update the stopping_criterion
-        saver = alibox.get_stateio(round, verbose=False)
         
         # calculate the accuracy for the case that all data ist labeled
         model_copy = copy.deepcopy(model)
@@ -83,9 +78,8 @@ def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio
         # we only care about how close we are to the maximum accuracy, not the actual accuracy
         accuracy /= max_accuracy
         quality_results[round,j] = accuracy
-        saver.set_initial_point(accuracy)
         
-        while not stopping_criterion.is_stop():
+        for _ in range(num_of_queries):
             j += 1
             select_ind = strategy.select(label_ind, unlab_ind, model=model, batch_size=1)
         
@@ -98,15 +92,7 @@ def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio
                                                     y_pred=pred,
                                                     performance_metric='accuracy_score')
             accuracy /= max_accuracy
-
-            st = alibox.State(select_index=select_ind, performance=accuracy)
-            saver.add_state(st)
             quality_results[round, j] = accuracy
-        
-            # Passing the current progress to stopping criterion object
-            stopping_criterion.update_information(saver)
-        # Reset the progress in stopping criterion object
-        stopping_criterion.reset()
         
     # saving the results
     np.save(save_path + "/" + save_name + ".npy", quality_results)
