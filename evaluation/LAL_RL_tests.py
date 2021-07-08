@@ -1,9 +1,14 @@
-import copy
 from alipy import ToolBox
 import pickle
 from tqdm.auto import tqdm
 from alipy.query_strategy import QueryInstanceLAL_RL
 from sklearn import svm
+from sklearn.linear_model import LogisticRegression
+from sklearn.base import clone
+
+# with default parameters for LogisticRegression we likely get a ConvergenceWarning
+import warnings
+warnings.filterwarnings("ignore")
 
 import numpy as np
 
@@ -34,7 +39,7 @@ def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio
         
     # Use the default Logistic Regression classifier or SVM
     if model == None:
-        model = alibox.get_default_model()
+        model = LogisticRegression()
     elif model.upper() == "SVM":
         model = svm.SVC()
         
@@ -60,7 +65,7 @@ def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio
         train_idx, test_idx, label_ind, unlab_ind = alibox.get_split(round)
         
         # calculate the accuracy for the case that all data ist labeled
-        model_copy = copy.deepcopy(model)
+        model_copy = clone(model)
         model_copy.fit(X=X[train_idx], y=y[train_idx])
         pred = model_copy.predict(X[test_idx])
         max_accuracy = alibox.calc_performance_metric(y_true=y[test_idx],
@@ -69,6 +74,7 @@ def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio
         quality_results[round,-1] = max_accuracy
 
         # calculate the initial accuracy
+        model = clone(model)
         model.fit(X=X[label_ind.index], y=y[label_ind.index])
         pred = model.predict(X[test_idx])
         accuracy = alibox.calc_performance_metric(y_true=y[test_idx],
