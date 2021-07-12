@@ -255,7 +255,7 @@ class QueryInstanceLAL_RL(BaseIndexQuery):
 
     def select(self, label_index, unlabel_index, model=None, batch_size=1):
         assert (batch_size > 0)
-        assert (isinstance(unlabel_index, collections.Iterable))
+        assert (isinstance(unlabel_index, collections.abc.Iterable))
         if len(unlabel_index) <= batch_size:
             return unlabel_index
         assert len(unlabel_index) > self.n_state_estimation
