@@ -1,9 +1,14 @@
-import copy
 from alipy import ToolBox
 import pickle
 from tqdm.auto import tqdm
 from alipy.query_strategy import QueryInstanceLAL_RL
 from sklearn import svm
+from sklearn.linear_model import LogisticRegression
+from sklearn.base import clone
+
+# with default parameters for LogisticRegression we likely get a ConvergenceWarning
+import warnings
+warnings.filterwarnings("ignore")
 
 import numpy as np
 
@@ -34,12 +39,9 @@ def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio
         
     # Use the default Logistic Regression classifier or SVM
     if model == None:
-        model = alibox.get_default_model()
+        model = LogisticRegression()
     elif model.upper() == "SVM":
         model = svm.SVC()
-        
-    # set the number of queries
-    stopping_criterion = alibox.get_stopping_criterion('num_of_queries', num_of_queries)
         
     # initialize either an LAL_RL strategy or another ALiPy strategy
     if strategy_name == "QueryInstanceLAL_RL":
@@ -61,11 +63,9 @@ def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio
         j = 0
         # Get the data split
         train_idx, test_idx, label_ind, unlab_ind = alibox.get_split(round)
-        # the saver is only used to update the stopping_criterion
-        saver = alibox.get_stateio(round, verbose=False)
         
         # calculate the accuracy for the case that all data ist labeled
-        model_copy = copy.deepcopy(model)
+        model_copy = clone(model)
         model_copy.fit(X=X[train_idx], y=y[train_idx])
         pred = model_copy.predict(X[test_idx])
         max_accuracy = alibox.calc_performance_metric(y_true=y[test_idx],
@@ -74,6 +74,7 @@ def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio
         quality_results[round,-1] = max_accuracy
 
         # calculate the initial accuracy
+        model = clone(model)
         model.fit(X=X[label_ind.index], y=y[label_ind.index])
         pred = model.predict(X[test_idx])
         accuracy = alibox.calc_performance_metric(y_true=y[test_idx],
@@ -83,9 +84,8 @@ def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio
         # we only care about how close we are to the maximum accuracy, not the actual accuracy
         accuracy /= max_accuracy
         quality_results[round,j] = accuracy
-        saver.set_initial_point(accuracy)
         
-        while not stopping_criterion.is_stop():
+        for _ in range(num_of_queries):
             j += 1
             select_ind = strategy.select(label_ind, unlab_ind, model=model, batch_size=1)
         
@@ -98,15 +98,7 @@ def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio
                                                     y_pred=pred,
                                                     performance_metric='accuracy_score')
             accuracy /= max_accuracy
-
-            st = alibox.State(select_index=select_ind, performance=accuracy)
-            saver.add_state(st)
             quality_results[round, j] = accuracy
-        
-            # Passing the current progress to stopping criterion object
-            stopping_criterion.update_information(saver)
-        # Reset the progress in stopping criterion object
-        stopping_criterion.reset()
         
     # saving the results
     np.save(save_path + "/" + save_name + ".npy", quality_results)
