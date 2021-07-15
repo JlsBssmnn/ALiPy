@@ -182,6 +182,9 @@ class LAL_RL_StrategyLearner:
 
 
     def train_agent(self, n_of_updates):
+        # check if there are enough experiences in replay memory
+        if self.replay_buffer.n < self.batch_size:
+            return
         # create function depending on verbose level
         if self.verbose >= 2:
             p_bar = tqdm(total=n_of_updates, desc="Train q-net", leave=False)
