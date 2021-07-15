@@ -52,7 +52,7 @@ class LAL_RL_StrategyLearner:
     def train_query_strategy(self, saving_path, file_name, warm_start_episodes=128, nn_updates_per_warm_start=100,
                 learning_rate=1e-3, batch_size=32, gamma=0.999, update_rate=100,
                 training_iterations=1000, episodes_per_iteration=10, updates_per_iteration=60,
-                epsilon_start=1, epsilon_end=0.1, epsilon_step=1000, device=None):
+                epsilon_start=1, epsilon_end=0.1, epsilon_step=1000, device=None, verbose=2):
         """
         saving_path: the directory where the learnt strategy will be saved
         file_name: the file name for the learnt strategy
@@ -69,7 +69,13 @@ class LAL_RL_StrategyLearner:
         epsilon_end: the end value of epsilon for the epsilon greedy strategy
         epsilon_step: the number of iterations it takes for the epsilon value to decay from start value to end value
         device: pytorch device that will be used for the computations
+        verbose: 3 - progessbar for warmstart episodes, iterations, episodes and steps in the environment
+                 2 - progessbar for warmstart episodes, iterations and episodes
+                 1 - just one progessbar for the iterations
+                 0 - no progressbars
         """
+        if verbose not in [0,1,2,3]:
+            raise ValueError("Verbose must be 0, 1, 2 or 3")
         self.saving_path = saving_path + "/" + file_name
         self.batch_size = batch_size
         self.update_rate = update_rate
@@ -79,6 +85,7 @@ class LAL_RL_StrategyLearner:
         self.epsilon_start = epsilon_start
         self.epsilon_end = epsilon_end
         self.epsilon_step = epsilon_step
+        self.verbose = verbose
 
         bias_average = self.run_warm_start_episodes(warm_start_episodes)
         self.agent = Agent(self.n_state_estimation, learning_rate, batch_size, bias_average,
@@ -89,13 +96,15 @@ class LAL_RL_StrategyLearner:
 
     def continue_training(self, saving_path, file_name, net_path, target_net_path=None, learning_rate=1e-3, batch_size=32,
                 gamma=0.999, update_rate=100, training_iterations=1000, episodes_per_iteration=10, updates_per_iteration=60,
-                epsilon_start=1, epsilon_end=0.1, epsilon_step=1000, device=None):
+                epsilon_start=1, epsilon_end=0.1, epsilon_step=1000, device=None, verbose=2):
         """
         net_path: the path to the q-network that has already been trained and shall now be further trained
         target_net_path: the corresponding target net if None then a copy of the net will be used as target net
 
         the other parameters are exactly the same as in train_query_strategy
         """
+        if verbose not in [0,1,2,3]:
+            raise ValueError("Verbose must be 0, 1, 2 or 3")
         state_dict = torch.load(net_path, map_location=device)
 
         if target_net_path != None:
@@ -128,9 +137,20 @@ class LAL_RL_StrategyLearner:
 
 
     def run_warm_start_episodes(self, n_episodes):
+        # create function depending on verbose level
+        if self.verbose >= 2:
+            p_bar = tqdm(total=n_episodes, desc="Warmstart episodes")
+            def update():
+                p_bar.update()
+            def close():
+                p_bar.close()
+        else:
+            update = lambda *x : None
+            close = lambda *x : None
+
         # Keep track of episode duration to compute average
         episode_durations = []
-        for _ in tqdm(range(n_episodes), desc="Warmstart episodes"):
+        for _ in range(n_episodes):
             # Reset the environment to start a new episode
             # classifier_state contains vector representation of state of the environment (depends on classifier)
             # next_action_state contains vector representations of all actions available to be taken at the next step
@@ -153,35 +173,81 @@ class LAL_RL_StrategyLearner:
                 classifier_state = next_classifier_state
                 episode_duration += 1 
             episode_durations.append(episode_duration)
+            update()
         # compute the average episode duration of episodes generated during the warm start procedure
         av_episode_duration = np.mean(episode_durations)
-        print('\nAverage episode duration = ', av_episode_duration)
+        close()
 
         return -av_episode_duration/2
 
 
     def train_agent(self, n_of_updates):
-        for _ in tqdm(range(n_of_updates), desc="Train q-net", leave=False):
+        # create function depending on verbose level
+        if self.verbose >= 2:
+            p_bar = tqdm(total=n_of_updates, desc="Train q-net", leave=False)
+            def update():
+                p_bar.update()
+            def close():
+                p_bar.close()
+        else:
+            update = lambda *x : None
+            close = lambda *x : None
+        for _ in range(n_of_updates):
             # Sample a batch from the replay buffer proportionally to the probability of sampling.
             minibatch = self.replay_buffer.sample_minibatch(self.batch_size)
             # Use batch to train an agent. Keep track of temporal difference errors during training.
             td_error = self.agent.train(minibatch)
             # Update probabilities of sampling each datapoint proportionally to the error.
             self.replay_buffer.update_td_errors(td_error, minibatch.indeces)
+            update()
+        close()
 
 
     def run_training_iterations(self):
-        for iteration in tqdm(range(self.training_iterations), desc="Train iterations"):
+        # create function depending on verbose level
+        if self.verbose >= 1:
+            p_bar_iter = tqdm(total=self.training_iterations, desc="Train iterations", leave=(not self.verbose==1))
+            def update_iter():
+                p_bar_iter.update()
+            def close_iter():
+                p_bar_iter.close()
+        else:
+            update_iter = lambda *x : None
+            close_iter = lambda *x : None
+
+        for iteration in range(self.training_iterations):
             # GENERATE NEW EPISODES
             # Compute epsilon value according to the schedule.
             epsilon = max(self.epsilon_end, self.epsilon_start-iteration*(self.epsilon_start-self.epsilon_end)/self.epsilon_step)
+            
+            # create function depending on verbose level
+            if self.verbose >= 2:
+                p_bar_episode = tqdm(total=self.episodes_per_iteration, desc="Episodes", leave=False)
+                def update_episode():
+                    p_bar_episode.update()
+                def close_episode():
+                    p_bar_episode.close()
+            else:
+                update_episode = lambda *x : None
+                close_episode = lambda *x : None
+
             # Simulate training episodes.
-            for _ in tqdm(range(self.episodes_per_iteration), desc="Episodes", leave=False):
+            for _ in range(self.episodes_per_iteration):
                 # Reset the environment to start a new episode.
                 classifier_state, next_action_state = self.env.reset()
                 terminal = False
                 max_steps = len(self.env.dataset.train_labels)
-                progress_bar = tqdm(total=max_steps, desc=self.env.dataset.dataset_name, leave=False)
+
+                # create function depending on verbose level
+                if self.verbose >= 3:
+                    p_bar_steps = tqdm(total=max_steps, desc=self.env.dataset.dataset_name, leave=False)
+                    def update_steps():
+                        p_bar_steps.update()
+                    def close_steps():
+                        p_bar_steps.close()
+                else:
+                    update_steps = lambda *x : None
+                    close_steps = lambda *x : None
                 # Run an episode.
                 while not terminal:
                     # Let an agent choose an action or with epsilon probability, take a random action.
@@ -203,15 +269,19 @@ class LAL_RL_StrategyLearner:
                                                 terminal)
                     # Change a state of environment.
                     classifier_state = next_classifier_state
-                    progress_bar.update()
-                progress_bar.close()
+                    update_steps()
+                close_steps()
+                update_episode()
+            close_episode()
             # NEURAL NETWORK UPDATES
             self.train_agent(self.updates_per_iteration)
             if iteration % self.update_rate == 0:
                 self.agent.update_target_net()
+            update_iter()
 
         self.agent.save_net(self.saving_path)
         self.agent.save_target_net(self.saving_path)
+        close_iter()
 
 
 
