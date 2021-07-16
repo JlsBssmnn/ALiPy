@@ -1,13 +1,21 @@
+import copy
 from alipy import ToolBox
 import pickle
 from tqdm.auto import tqdm
 from alipy.query_strategy import QueryInstanceLAL_RL, LAL_RL_StrategyLearner
-from sklearn import svm
+from sklearn import svm, metrics
 from sklearn.linear_model import LogisticRegression
 from sklearn.base import clone
 from scipy.stats import uniform
 from sklearn.base import BaseEstimator
 from sklearn.model_selection import RandomizedSearchCV
+import torch
+
+from alipy.query_strategy.LAL_RL.Test_AL import check_performance, policy_random, \
+                    policy_uncertainty, policy_rl, check_performance_for_figure
+from alipy.query_strategy.LAL_RL.Agent import Agent
+from alipy.query_strategy.LAL_RL.datasets import DatasetUCI
+from alipy.query_strategy.LAL_RL.envs import LalEnvTargetAccuracy
 
 # with default parameters for LogisticRegression we likely get a ConvergenceWarning
 import warnings
@@ -15,6 +23,7 @@ warnings.filterwarnings("ignore")
 
 import numpy as np
 import os
+import pickle
 
      
 def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio=0.2, init_lab=2, num_of_queries=100, model=None, verbose=1, **kwargs):
@@ -118,6 +127,72 @@ def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio
     close()
     # saving the results
     np.save(save_path + "/" + save_name + ".npy", quality_results)
+
+
+# the way of testing in the paper
+def test_LAL_RL_environment(save_path, save_name, path, dataset_names, strategies=["uncertainty", "random", "LAL_RL"], rounds=500, num_of_queries=100, model=None, 
+                            n_state_estimation=30, tolerance_level=0.98, verbose=1, model_path=None):
+    if "LAL_RL" in strategies:
+        state_dict = torch.load(model_path)
+        n_state_estimation = state_dict[list(state_dict.keys())[0]].size(1)
+        agent = Agent(n_state_estimation, bias_average=0)
+        agent.net.load_state_dict(state_dict)
+    dataset = DatasetUCI(possible_names=dataset_names, n_state_estimation=n_state_estimation, subset=-1, size=num_of_queries, path=path)
+    if model == None:
+        model = LogisticRegression()
+    env = LalEnvTargetAccuracy(dataset, model, quality_method=metrics.accuracy_score, tolerance_level=tolerance_level)
+
+    if verbose >= 1:
+        p_bar = tqdm(total=rounds, desc="AL rounds")
+        def update():
+            p_bar.update()
+        def close():
+            p_bar.close()
+    else:
+        update = lambda: None
+        close = lambda: None
+    all_scores = dict()
+    for strat in strategies:
+        all_scores[strat] = []
+
+    for round in range(rounds):
+        state, next_action_state = env.reset()
+        if "random" in strategies:
+            env_rand = copy.deepcopy(env)
+            state_rand = copy.deepcopy(state)
+            done = False
+            while not(done):
+                action = policy_random(env_rand.n_actions)
+                _, _, _, done = env_rand.step(action)
+            all_scores["random"].append(env_rand.episode_qualities)
+        if "uncertainty" in strategies:
+            next_action_state_uncert = next_action_state
+            env_uncert = copy.deepcopy(env)
+            state_uncert = copy.deepcopy(state)
+            done = False
+            while not(done):
+                action = policy_uncertainty(next_action_state_uncert[0,:])
+                next_state, next_action_state_uncert, reward, done = env_uncert.step(action)
+            all_scores["uncertainty"].append(env_uncert.episode_qualities)
+        if "LAL_RL" in strategies:
+            next_action_state_rl = next_action_state
+            env_rl = copy.deepcopy(env)
+            state_rl = copy.deepcopy(state)
+            done = False
+            while not(done):
+                action = policy_rl(agent, state_rl, next_action_state_rl)        
+                next_state, next_action_state_rl, reward, done = env_rl.step(action)
+                state_rl = next_state
+            all_scores["LAL_RL"].append(env_rl.episode_qualities)
+        update()
+    close()
+    max_duration = 0
+    for strat, scores in all_scores.items():
+        scores, durations = check_performance(scores)
+        max_duration = max(max_duration, max(durations))
+    for strat, scores in all_scores.items():
+        all_scores[strat] = check_performance_for_figure(scores, max_duration)
+    pickle.dump(all_scores, open(save_path + "/" + save_name + ".p", "wb"))
 
 
 # finding the right hyper parameters for LAL_RL

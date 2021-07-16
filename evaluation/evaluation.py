@@ -1,3 +1,4 @@
+import pickle
 import numpy as np
 import copy
 from os import listdir
@@ -7,6 +8,7 @@ from alipy.experiment import StateIO, ExperimentAnalyser
 from datetime import datetime
 import matplotlib.pyplot as plt
 from tqdm.auto import tqdm
+from alipy.query_strategy.LAL_RL.Test_AL import check_performance, check_performance_for_figure
 
 class ExperimentRunner:
     def __init__(self,X,y,saving_path=None):
@@ -330,6 +332,20 @@ class ExperimentPlotter:
             return np.mean(array, axis=0), np.std(array, axis=0)
         else:
             return np.mean(array[:,:num_queries+1], axis=0), np.std(array[:,:num_queries+1], axis=0)
+
+    def plot_LAL_RL_scores(self, directory, file_name):
+        all_scores = pickle.load(open(directory + "/" + file_name + ".p", "rb"))
+
+        for strat, scores in all_scores.items():
+            m_line = np.mean(scores, axis=0)
+            var_line = np.var(scores, axis=0)
+            plt.plot(m_line, label = strat)
+            plt.fill_between(range(np.size(m_line)), m_line - var_line, m_line + var_line, alpha=0.3)
+        plt.xlabel("Number of queries")
+        plt.ylabel("Target quality")
+        plt.title("Results")
+        plt.legend(fancybox=True, framealpha=0.5)
+        plt.show()
 
 
 def run_experiment(X,y,strategies=["QueryInstanceUncertainty"],num_splits=5,num_of_queries=20,batch_size=1,
