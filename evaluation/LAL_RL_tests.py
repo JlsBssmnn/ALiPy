@@ -17,7 +17,7 @@ import numpy as np
 import os
 
      
-def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio=0.2, init_lab=2, num_of_queries=100, model=None, **kwargs):
+def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio=0.2, init_lab=2, num_of_queries=100, model=None, verbose=1, **kwargs):
     """
     save_path: directory where the result will be saved
     save_name: name for the saved file
@@ -27,6 +27,8 @@ def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio
     test_ratio: the ratio of data that will be used for testing
     init_lab: int, the number of samples that will be labeled initially
     num_of_queries: how many queries will be performed
+    verbose: 1 - progressbar for active learning rounds
+             0 - no progressbar
     kwargs: parameters for the LAL_RL strategy (model_path, n_state_estimation, pred_batch, device)
     """
     # open dataset
@@ -62,8 +64,17 @@ def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio
     # that could have been achieved if all data would be labeled)
     quality_results = np.empty((rounds,num_of_queries + 2))
 
+    if verbose >= 1:
+        p_bar = tqdm(total=rounds, desc="AL rounds", leave=False)
+        def update():
+            p_bar.update()
+        def close():
+            p_bar.close()
+    else:
+        update = lambda: None
+        close = lambda: None
 
-    for round in tqdm(range(rounds), desc="AL rounds"):
+    for round in range(rounds):
         j = 0
         # Get the data split
         train_idx, test_idx, label_ind, unlab_ind = alibox.get_split(round)
@@ -103,7 +114,8 @@ def test_LAL_RL(save_path, save_name, path, strategy_name, rounds=10, test_ratio
                                                     performance_metric='accuracy_score')
             accuracy /= max_accuracy
             quality_results[round, j] = accuracy
-        
+        update()
+    close()
     # saving the results
     np.save(save_path + "/" + save_name + ".npy", quality_results)
 
@@ -167,17 +179,17 @@ class Model(BaseEstimator):
         self.LAL_RL.train_query_strategy(self.attr.saving_path, file_name[:-4], self.warm_start_episodes, 
                 self.nn_updates_per_warm_start, self.learning_rate, self.batch_size, self.gamma, self.update_rate,
                 self.training_iterations, self.episodes_per_iteration, self.updates_per_iteration,
-                self.epsilon_start, self.epsilon_end, self.epsilon_step)
+                self.epsilon_start, self.epsilon_end, self.epsilon_step, verbose=0)
         
         test_LAL_RL(self.attr.saving_path, file_name[:-4], os.path.join(self.attr.dataset_path, "adult.p"), 
-                    "QueryInstanceLAL_RL", 5, 0.3, 4, model_path=os.path.join(self.attr.saving_path, file_name[:-4]+".pt"))
+                    "QueryInstanceLAL_RL", 500, 0.3, 4, verbose=0, model_path=os.path.join(self.attr.saving_path, file_name[:-4]+".pt"))
     
     def score(self, X, y):
         # we don't use the score function, this is just arbitrary output
         return self.n_state_estimation
 
 
-def search_hyper_parameters(dataset_path, possible_dataset_names, saving_path, iterations):
+def search_hyper_parameters(dataset_path, possible_dataset_names, saving_path, iterations, n_jobs=-1):
     param = dict(
         n_state_estimation = range(25,50),
         subset = [-1,0,1],
@@ -204,6 +216,6 @@ def search_hyper_parameters(dataset_path, possible_dataset_names, saving_path, i
                     prioritized_replay_exponent=3, warm_start_episodes=128, nn_updates_per_warm_start=100, learning_rate=1e-3, 
                     batch_size=32, gamma=0.999, update_rate=100, training_iterations=1000, episodes_per_iteration=10,
                     updates_per_iteration=60, epsilon_start=1, epsilon_end=0.1, epsilon_step=1000)
-    clf = RandomizedSearchCV(est, param, n_iter=iterations, refit=False, cv=2)
+    clf = RandomizedSearchCV(est, param, n_iter=iterations, refit=False, cv=2, n_jobs=n_jobs, verbose=1)
 
     clf.fit([[1,2], [3,4]], [1,0])
