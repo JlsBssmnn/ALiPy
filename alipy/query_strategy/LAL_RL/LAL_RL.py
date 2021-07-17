@@ -50,7 +50,7 @@ class LAL_RL_StrategyLearner:
 
 
     def train_query_strategy(self, saving_path, file_name, warm_start_episodes=128, nn_updates_per_warm_start=100,
-                learning_rate=1e-3, batch_size=32, gamma=0.999, update_rate=100,
+                learning_rate=1e-3, batch_size=32, gamma=0.999, target_copy_factor=0.01,
                 training_iterations=1000, episodes_per_iteration=10, updates_per_iteration=60,
                 epsilon_start=1, epsilon_end=0.1, epsilon_step=1000, device=None, verbose=2):
         """
@@ -61,7 +61,7 @@ class LAL_RL_StrategyLearner:
         learning_rate: the learning rate of the deep q-network
         batch_size: the size of the batches that will be sampled from replay memory for one q-network update
         gamma: the discount factor in q-learning
-        update_rate: the amount of iterations after which the weights of the q-network will be copied to the target network
+        target_copy_factor: the factor for copying the weights of the estimator to the target estimator
         training_iterations: the amount of training iterations
         episodes_per_iteration: the amount of episodes in one training iteration
         updates_per_iteration: the number of q-network updates that are performed at the end of an iteration
@@ -78,7 +78,6 @@ class LAL_RL_StrategyLearner:
             raise ValueError("Verbose must be 0, 1, 2 or 3")
         self.saving_path = saving_path + "/" + file_name
         self.batch_size = batch_size
-        self.update_rate = update_rate
         self.training_iterations = training_iterations
         self.episodes_per_iteration = episodes_per_iteration
         self.updates_per_iteration = updates_per_iteration
@@ -89,13 +88,13 @@ class LAL_RL_StrategyLearner:
 
         bias_average = self.run_warm_start_episodes(warm_start_episodes)
         self.agent = Agent(self.n_state_estimation, learning_rate, batch_size, bias_average,
-               gamma, device)
+               target_copy_factor, gamma, device)
         self.train_agent(nn_updates_per_warm_start)
         self.run_training_iterations()
 
 
     def continue_training(self, saving_path, file_name, net_path, target_net_path=None, learning_rate=1e-3, batch_size=32,
-                gamma=0.999, update_rate=100, training_iterations=1000, episodes_per_iteration=10, updates_per_iteration=60,
+                gamma=0.999, target_copy_factor=0.01, training_iterations=1000, episodes_per_iteration=10, updates_per_iteration=60,
                 epsilon_start=1, epsilon_end=0.1, epsilon_step=1000, device=None, verbose=2):
         """
         net_path: the path to the q-network that has already been trained and shall now be further trained
@@ -121,7 +120,6 @@ class LAL_RL_StrategyLearner:
 
         self.saving_path = saving_path + "/" + file_name
         self.batch_size = batch_size
-        self.update_rate = update_rate
         self.training_iterations = training_iterations
         self.episodes_per_iteration = episodes_per_iteration
         self.updates_per_iteration = updates_per_iteration
@@ -130,7 +128,7 @@ class LAL_RL_StrategyLearner:
         self.epsilon_step = epsilon_step
 
         self.agent = Agent(self.n_state_estimation, learning_rate, batch_size, 0,
-               gamma, device)
+               target_copy_factor, gamma, device)
         self.agent.net.load_state_dict(state_dict)
         self.agent.target_net.load_state_dict(target_state_dict)
         self.run_training_iterations()
@@ -278,8 +276,6 @@ class LAL_RL_StrategyLearner:
             close_episode()
             # NEURAL NETWORK UPDATES
             self.train_agent(self.updates_per_iteration)
-            if iteration % self.update_rate == 0:
-                self.agent.update_target_net()
             update_iter()
 
         self.agent.save_net(self.saving_path)

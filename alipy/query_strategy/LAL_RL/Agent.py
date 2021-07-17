@@ -1,3 +1,4 @@
+from collections import OrderedDict
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -25,7 +26,7 @@ class Net(nn.Module):
 
 class Agent:
     def __init__(self, n_state_estimation=30, learning_rate=1e-3, batch_size=32, bias_average=0,
-               gamma=0.999, device=None):
+               target_copy_factor=0.01, gamma=0.999, device=None):
         self.net = Net(n_state_estimation, bias_average).to(device)
         self.target_net = Net(n_state_estimation, bias_average).to(device)
         self.target_net.eval()
@@ -35,9 +36,10 @@ class Agent:
         self.target_net.load_state_dict(self.net.state_dict())
         
         # create loss function and optimizer
-        self.loss = nn.MSELoss()
+        self.loss = nn.MSELoss(reduction='sum')
         self.optimizer = optim.Adam(self.net.parameters(), lr=learning_rate)
         self.batch_size = batch_size
+        self.target_copy_factor = target_copy_factor
         self.gamma = gamma
         
     def train(self, minibatch):
@@ -68,21 +70,33 @@ class Agent:
             max_target_prediction_i = target_predictions[best_action_by_estimator]
             max_prediction_batch.append(max_target_prediction_i)
             
-        expected_state_action_values = minibatch.reward + self.gamma*np.array(max_prediction_batch)
-        expected_state_action_values = torch.tensor(expected_state_action_values, dtype=torch.float, device=self.device)
+        max_prediction_batch = torch.tensor(max_prediction_batch, dtype=torch.float, device=self.device)
+        terminal_mask = torch.where(torch.tensor(minibatch.terminal, device=self.device), torch.zeros(self.batch_size, device=self.device),
+                                    torch.ones(self.batch_size, device=self.device))
+        masked_target_predictions = max_prediction_batch * terminal_mask
+        expected_state_action_values = torch.tensor(minibatch.reward, dtype=torch.float, device=self.device) + self.gamma*masked_target_predictions
         
         input_tensor = np.concatenate((minibatch.classifier_state, minibatch.action_state), axis=1)
         input_tensor = torch.from_numpy(input_tensor).to(self.device).float()
         net_output = self.net(input_tensor)
         net_output = net_output.flatten()
         
-        td_errors = net_output - expected_state_action_values
+        td_errors = expected_state_action_values - net_output
         
         # actually train the network
         loss = self.loss(net_output, expected_state_action_values)
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
+         
+        # Operation to copy parameter values (partially) to target estimator
+        new_state_dict = OrderedDict()
+        for var_name in self.net.state_dict():
+            target_var = self.target_net.state_dict()[var_name]
+            policy_var = self.net.state_dict()[var_name]
+            target_var = target_var*(1-self.target_copy_factor) + policy_var*self.target_copy_factor
+            new_state_dict[var_name] = target_var
+        self.target_net.load_state_dict(new_state_dict)
         
         return td_errors.detach().cpu().numpy()
     

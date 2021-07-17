@@ -213,7 +213,7 @@ class Attr:
 class Model(BaseEstimator):
     def __init__(self, attr, n_state_estimation, subset, tolerance_level, model, replay_buffer_size, 
                  prioritized_replay_exponent, warm_start_episodes, nn_updates_per_warm_start, learning_rate, 
-                 batch_size, gamma, update_rate, training_iterations, episodes_per_iteration, updates_per_iteration, 
+                 batch_size, gamma, target_copy_factor, training_iterations, episodes_per_iteration, updates_per_iteration, 
                  epsilon_start, epsilon_end, epsilon_step):
         self.attr = attr
         self.n_state_estimation = n_state_estimation
@@ -227,7 +227,7 @@ class Model(BaseEstimator):
         self.learning_rate = learning_rate
         self.batch_size = batch_size
         self.gamma = gamma
-        self.update_rate = update_rate
+        self.target_copy_factor =target_copy_factor 
         self.training_iterations = training_iterations
         self.episodes_per_iteration = episodes_per_iteration
         self.updates_per_iteration = updates_per_iteration
@@ -252,7 +252,7 @@ class Model(BaseEstimator):
         f.close()
         
         self.LAL_RL.train_query_strategy(self.attr.saving_path, file_name[:-4], self.warm_start_episodes, 
-                self.nn_updates_per_warm_start, self.learning_rate, self.batch_size, self.gamma, self.update_rate,
+                self.nn_updates_per_warm_start, self.learning_rate, self.batch_size, self.gamma, self.target_copy_factor,
                 self.training_iterations, self.episodes_per_iteration, self.updates_per_iteration,
                 self.epsilon_start, self.epsilon_end, self.epsilon_step, verbose=0)
         
@@ -276,8 +276,8 @@ def search_hyper_parameters(dataset_path, possible_dataset_names, saving_path, i
         nn_updates_per_warm_start = range(0,200),
         learning_rate = [1e-3, 1e-4],
         batch_size = range(8,129),
-        gamma = uniform(loc=0.8, scale=0.199),
-        update_rate = range(1,6),
+        gamma = uniform(loc=0.8, scale=0.2),
+        target_copy_factor = range(0.005,0.02),
         training_iterations = range(750,1001),
         episodes_per_iteration = range(5,20),
         updates_per_iteration = range(30,200),
@@ -289,7 +289,7 @@ def search_hyper_parameters(dataset_path, possible_dataset_names, saving_path, i
     attr = Attr(dataset_path, possible_dataset_names, saving_path)
     est = Model(attr, n_state_estimation=1, subset=-1, tolerance_level=0.98, model=None, replay_buffer_size=1e4, 
                     prioritized_replay_exponent=3, warm_start_episodes=128, nn_updates_per_warm_start=100, learning_rate=1e-3, 
-                    batch_size=32, gamma=0.999, update_rate=100, training_iterations=1000, episodes_per_iteration=10,
+                    batch_size=32, gamma=0.999, target_copy_factor=100, training_iterations=1000, episodes_per_iteration=10,
                     updates_per_iteration=60, epsilon_start=1, epsilon_end=0.1, epsilon_step=1000)
     clf = RandomizedSearchCV(est, param, n_iter=iterations, refit=False, cv=2, n_jobs=n_jobs, verbose=1)
 
