@@ -187,12 +187,15 @@ def test_LAL_RL_environment(save_path, save_name, path, dataset_names, strategie
         update()
     close()
     max_duration = 0
+    all_durations = []
     for strat, scores in all_scores.items():
         scores, durations = check_performance(scores)
         max_duration = max(max_duration, max(durations))
+        all_durations.append(durations)
     for strat, scores in all_scores.items():
         all_scores[strat] = check_performance_for_figure(scores, max_duration)
     pickle.dump(all_scores, open(save_path + "/" + save_name + ".p", "wb"))
+    return all_durations
 
 
 # finding the right hyper parameters for LAL_RL

@@ -24,9 +24,6 @@ def check_performance(all_scores):
     for score in all_scores:
         all_durations.append(len(score))
     all_durations = np.array(all_durations)
-    print('mean +/- std is ', np.mean(all_durations), '+/-', np.std(all_durations))
-    print('median is ', np.median(np.array(all_durations)))
-    print('maximum is ', max(all_durations))
     return all_scores, all_durations
 
 # Functions for various AL strategies
