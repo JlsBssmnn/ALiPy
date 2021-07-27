@@ -8,6 +8,7 @@ from alipy.experiment import StateIO, ExperimentAnalyser
 from datetime import datetime
 import matplotlib.pyplot as plt
 from tqdm.auto import tqdm
+from alipy.metrics import performance
 from alipy.query_strategy.LAL_RL.Test_AL import check_performance, check_performance_for_figure
 
 class ExperimentRunner:
@@ -15,10 +16,12 @@ class ExperimentRunner:
         self.X = X
         self.y = y
         self.alibox = ToolBox(X=X, y=y, saving_path=saving_path)
+        self.saving_path = saving_path
 
     def run_one_strategy(self, strategy,num_splits=5,num_of_queries=None,max_acquired_data=None,batch_size=1,
                         test_ratio=0.3, initial_label_rate=0.1, model=None, file_name=None, reset_model=False,
-                        fit_strategy=None, custom_query_strat=None, device=None, equal_inst_per_class=False):
+                        fit_strategy=None, custom_query_strat=None, device=None, equal_inst_per_class=False,
+                        performance_metric='accuracy_score'):
         """
             strategy: Name of the AL strategy that will be applied
             num_splits: how many AL rounds will be performed, the result of each round will be saved in a seperate file
@@ -38,6 +41,13 @@ class ExperimentRunner:
             equal_inst_per_class: If True it will try to modify the labeled index at the beginning of each round to 
                                   contain the same number of samples for each class
         """
+        if len([f for f in listdir(self.saving_path) if f.startswith(file_name)]) > 0:
+            raise ValueError("There are already files, that start with the given file_name")
+        self.time_file = open(join(self.saving_path, file_name + "_time_info.txt"), "x")
+
+        start = datetime.now()
+        self.time_file.write(start.strftime("Start of the experiment: %d.%m.%Y - %H:%M:%S\n"))
+
         self.alibox.split_AL(test_ratio=test_ratio, initial_label_rate=initial_label_rate, split_count=num_splits)
 
         if equal_inst_per_class:
@@ -46,9 +56,10 @@ class ExperimentRunner:
         num_of_queries = self.calc_num_of_queries(num_of_queries, max_acquired_data, batch_size)
         self.model = model
 
-        for round in range(num_splits):
+        for round in tqdm(range(num_splits), desc="AL rounds", leave=False):
+            start_of_round = datetime.now()
             train, test_idx, label_ind, unlab_ind = self.alibox.get_split(round)
-            saver = self.alibox.get_stateio(round)
+            saver = self.alibox.get_stateio(round, verbose=False)
 
             model_copy = copy.deepcopy(self.model)
             if model_copy == None:
@@ -88,7 +99,7 @@ class ExperimentRunner:
                     pred = model_copy.predict(self.X[test_idx, :], device=device)
                 accuracy = self.alibox.calc_performance_metric(y_true=self.y[test_idx],
                                                         y_pred=pred,
-                                                        performance_metric='accuracy_score')
+                                                        performance_metric=performance_metric)
 
                 # Save intermediate results to file
                 st = self.alibox.State(select_index=select_ind, performance=accuracy)
@@ -99,6 +110,14 @@ class ExperimentRunner:
                 stopping_criterion.update_information(saver)
             
             stopping_criterion.reset()
+            end_of_round = datetime.now()
+            diff = str(end_of_round - start_of_round)
+            self.time_file.write(f"\tDuration of round {round} --{diff[:diff.rfind('.')]}--\n")
+        end = datetime.now()
+        diff = str(end - start)
+        self.time_file.write(end.strftime("End of the experiment: %d.%m.%Y - %H:%M:%S\n"))
+        self.time_file.write(f"Duration of experiment {diff[:diff.rfind('.')]}\n")
+        self.time_file.close()
 
     def fit_strategy(self, model, label_ind, test_idx, fit_strategy=None, device=None):
         if fit_strategy == None:
