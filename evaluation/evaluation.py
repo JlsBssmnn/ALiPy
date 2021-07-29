@@ -1,8 +1,13 @@
+import os
 import pickle
 import numpy as np
 import copy
 from os import listdir
 from os.path import isfile, isdir, join, abspath
+import pandas as pd
+
+import sklearn
+from sklearn import metrics
 from alipy import ToolBox
 from alipy.experiment import StateIO, ExperimentAnalyser
 from datetime import datetime
@@ -15,13 +20,36 @@ class ExperimentRunner:
     def __init__(self,X,y,saving_path=None):
         self.X = X
         self.y = y
-        self.alibox = ToolBox(X=X, y=y, saving_path=saving_path)
         self.saving_path = saving_path
+
+    @staticmethod
+    def initialize_with_csv(csv_path, saving_path, header=0, delimiter=',', label_columnn_name=None,
+                            normalize=True):
+        """
+        This method returns an ExperimentRunner by extracting the X and y values out of the given csv file
+
+        csv_path: the path to the csv file
+        saving_path: the path where the results of the experiments will be stored
+        header: row numbers which represent column names
+        delimiter: the csv delimiter
+        label_column_name: the name of the column that contains the labels, if None is provided the last column is chosen
+        normalize: whether to min-max-scale the samples
+        """
+        csv_dataframe = pd.read_csv(csv_path, header=header, delimiter=delimiter)
+        if label_columnn_name != None:
+            # move the column with the labels to the end
+            csv_dataframe = csv_dataframe[[x for x in csv_dataframe if x!=label_columnn_name] + [label_columnn_name]]
+        X = csv_dataframe.to_numpy()[:, :-1]
+        y = csv_dataframe.to_numpy()[:, -1]
+
+        if normalize:
+            X = sklearn.preprocessing.minmax_scale(X)
+        return ExperimentRunner(X=X,y=y,saving_path=saving_path)
 
     def run_one_strategy(self, strategy,num_splits=5,num_of_queries=None,max_acquired_data=None,batch_size=1,
                         test_ratio=0.3, initial_label_rate=0.1, model=None, file_name=None, reset_model=False,
                         fit_strategy=None, custom_query_strat=None, device=None, equal_inst_per_class=False,
-                        performance_metric='accuracy_score'):
+                        performance_metric='accuracy_score', log_timing=False):
         """
             strategy: Name of the AL strategy that will be applied
             num_splits: how many AL rounds will be performed, the result of each round will be saved in a seperate file
@@ -30,6 +58,7 @@ class ExperimentRunner:
             batch_size: the batch size of one query
             test_ratio: the ratio of the dataset that will be used for testing
             initial_label_rate: the ratio of the non test dataset that will be labeled at the beginning
+                                if this is 'min' then the amount of labeled data will be equal to the number of classes
             model: the model that will be trained, used for accuracy measure and will be passed to the query strategy
             file_name: the name for the files that will safe the results of the experiment 
                         (the round number will be added to the name)
@@ -40,13 +69,25 @@ class ExperimentRunner:
             device: the pytorch device
             equal_inst_per_class: If True it will try to modify the labeled index at the beginning of each round to 
                                   contain the same number of samples for each class
+            log_timing: whether to create a file that contains timing information or not
         """
-        if len([f for f in listdir(self.saving_path) if f.startswith(file_name)]) > 0:
-            raise ValueError("There are already files, that start with the given file_name")
-        self.time_file = open(join(self.saving_path, file_name + "_time_info.txt"), "x")
+        if len([f for f in listdir(self.saving_path) if f == file_name]) > 0:
+            raise ValueError("There is already either a file or directory, that has with the given file_name")
+        os.mkdir(join(self.saving_path, file_name))
+        self.alibox = ToolBox(X=self.X, y=self.y, saving_path=join(self.saving_path, file_name))
 
-        start = datetime.now()
-        self.time_file.write(start.strftime("Start of the experiment: %d.%m.%Y - %H:%M:%S\n"))
+        if log_timing:
+            self.time_file = open(join(self.alibox._saving_path, file_name + "_time_info.txt"), "x")
+            start = datetime.now()
+            self.time_file.write(start.strftime("Start of the experiment: %d.%m.%Y - %H:%M:%S\n"))
+
+        # this way the initial point for AL will contain one labeled sample per class
+        if initial_label_rate == 'min':
+            initial_label_rate = len(np.unique(self.y))/(len(self.y)*(1-test_ratio))
+
+        performance_metric_param = dict()
+        if performance_metric == "f1_score" and len(np.unique(self.y)) > 2:
+            performance_metric_param['average'] = "weighted"
 
         self.alibox.split_AL(test_ratio=test_ratio, initial_label_rate=initial_label_rate, split_count=num_splits)
 
@@ -65,14 +106,16 @@ class ExperimentRunner:
             if model_copy == None:
                 model_copy = self.alibox.get_default_model()
 
-            model_copy = self.fit_strategy(model_copy, label_ind, test_idx, fit_strategy, device)
+            model_copy = self.fit_strategy(model_copy, label_ind, test_idx, fit_strategy, performance_metric,
+                performance_metric_param, device)
 
             if device == None:
                 pred = model_copy.predict(self.X[test_idx, :])
             else:
                 pred = model_copy.predict(self.X[test_idx, :], device=device)
 
-            accuracy = self.alibox.calc_performance_metric(y_true=self.y[test_idx], y_pred=pred, performance_metric='accuracy_score')
+            accuracy = self.alibox.calc_performance_metric(y_true=self.y[test_idx], y_pred=pred,
+                performance_metric=performance_metric, **performance_metric_param)
             saver.set_initial_point(accuracy)
 
             saver_file_name = saver._saving_file_name
@@ -91,7 +134,8 @@ class ExperimentRunner:
                 if reset_model:
                     model_copy = copy.deepcopy(self.model)
                 # use the default fit strategy or the provided custom one
-                model_copy = self.fit_strategy(model_copy, label_ind, test_idx, fit_strategy, device)
+                model_copy = self.fit_strategy(model_copy, label_ind, test_idx, fit_strategy, performance_metric,
+                    performance_metric_param, device)
                 
                 if device == None:
                     pred = model_copy.predict(self.X[test_idx, :])
@@ -99,7 +143,8 @@ class ExperimentRunner:
                     pred = model_copy.predict(self.X[test_idx, :], device=device)
                 accuracy = self.alibox.calc_performance_metric(y_true=self.y[test_idx],
                                                         y_pred=pred,
-                                                        performance_metric=performance_metric)
+                                                        performance_metric=performance_metric,
+                                                        **performance_metric_param)
 
                 # Save intermediate results to file
                 st = self.alibox.State(select_index=select_ind, performance=accuracy)
@@ -110,28 +155,33 @@ class ExperimentRunner:
                 stopping_criterion.update_information(saver)
             
             stopping_criterion.reset()
-            end_of_round = datetime.now()
-            diff = str(end_of_round - start_of_round)
-            self.time_file.write(f"\tDuration of round {round} --{diff[:diff.rfind('.')]}--\n")
-        end = datetime.now()
-        diff = str(end - start)
-        self.time_file.write(end.strftime("End of the experiment: %d.%m.%Y - %H:%M:%S\n"))
-        self.time_file.write(f"Duration of experiment {diff[:diff.rfind('.')]}\n")
-        self.time_file.close()
+            if log_timing:
+                end_of_round = datetime.now()
+                diff = str(end_of_round - start_of_round)
+                self.time_file.write(f"\tDuration of round {round} --{diff[:diff.rfind('.')]}--\n")
+        if log_timing:
+            end = datetime.now()
+            diff = str(end - start)
+            self.time_file.write(end.strftime("End of the experiment: %d.%m.%Y - %H:%M:%S\n"))
+            self.time_file.write(f"Duration of experiment {diff[:diff.rfind('.')]}\n")
+            self.time_file.close()
 
-    def fit_strategy(self, model, label_ind, test_idx, fit_strategy=None, device=None):
+    def fit_strategy(self, model, label_ind, test_idx, fit_strategy=None, performance_metric='accuracy_score',
+                     performance_metric_param=dict(), device=None):
         if fit_strategy == None:
             if device == None:
                 model.fit(X=self.X[label_ind.index, :], y=self.y[label_ind.index])
             else:
                 model.fit(X=self.X[label_ind.index, :], y=self.y[label_ind.index], device=device)
         elif fit_strategy == "batchBALD":
-            model = self.batchBALD_fit_strategy(model, label_ind, test_idx, device=device)
+            model = self.batchBALD_fit_strategy(model, label_ind, test_idx, performance_metric,
+                performance_metric_param, device)
 
         return model
 
     # described on page 6 of the paper
-    def batchBALD_fit_strategy(self, model, label_ind, test_idx, device=None):
+    def batchBALD_fit_strategy(self, model, label_ind, test_idx, performance_metric='accuracy_score',
+                               performance_metric_param=dict(), device=None):
         max_epochs = 1000
         num_declines = 0
         last_accuracy = -1
@@ -143,7 +193,8 @@ class ExperimentRunner:
             pred = model.predict(self.X[test_idx, :], device=device)
             accuracy = self.alibox.calc_performance_metric(y_true=self.y[test_idx],
                                                     y_pred=pred,
-                                                    performance_metric='accuracy_score')
+                                                    performance_metric=performance_metric,
+                                                    **performance_metric_param)
             if accuracy < last_accuracy:
                 num_declines += 1
             elif accuracy > best_accuracy:
@@ -309,6 +360,7 @@ class ExperimentPlotter:
     def plot_by_labeled_data(self, analyser, method_names, batch_sizes):
         values = []
         std_values = []
+        auc = dict()
         for j in range(len(method_names)):
             method_data = analyser.get_extracted_data(method_names[j])
             values.append(np.mean(method_data, axis=0))
@@ -318,7 +370,9 @@ class ExperimentPlotter:
             x_axis = np.arange(0, (len(values[j])-1)*batch_sizes[j] + 1, batch_sizes[j],int)
             plt.plot(x_axis, values[j], label=method_names[j])
             plt.fill_between(x_axis, values[j] + std_values[j], values[j] - std_values[j], alpha=0.3)
+            auc[method_names[j]] = metrics.auc(x_axis, values[j]) / metrics.auc(x_axis, np.ones(len(x_axis)))
             
+        print("The auc-scores:\n", auc)
         plt.xlabel("Acquired dataset size")
         plt.ylabel("Accuracy")
         plt.title("Results")
