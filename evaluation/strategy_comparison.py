@@ -6,6 +6,7 @@ import pickle
 import torchvision
 from alipy.query_strategy import LAL_RL_StrategyLearner
 from tqdm.auto import tqdm
+from datetime import datetime
 
 def prepare_datasets(csv_directory, saving_directory):
     """
@@ -69,9 +70,25 @@ def train_LAL_RL_strats(dataset_path, saving_path):
     all_datasets = [x for x in os.listdir(dataset_path) if x.endswith(".p")]
     all_datasets = [x[:-2] for x in all_datasets]
 
+    time_file = open(os.path.join(saving_path, "time_info.txt"), "x")
+    start = datetime.now()
+    time_file.write(start.strftime("Start of the experiment: %d.%m.%Y - %H:%M:%S\n"))
+
     for dataset in tqdm(all_datasets, desc="learn LAL_RL's"):
+        start_of_round = datetime.now()
+
         # not using EMNIST because it needs too much memory
         learner = LAL_RL_StrategyLearner(dataset_path,
             [x for x in all_datasets if x != dataset and not x.startswith("EMNIST")],
             size=100)
         learner.train_query_strategy(saving_path, "LAL_RL_"+dataset, verbose=2)
+
+        end_of_round = datetime.now()
+        diff = str(end_of_round - start_of_round)
+        time_file.write(f"\tDuration for dataset {dataset} --{diff[:diff.rfind('.')]}--\n")
+    
+    end = datetime.now()
+    diff = str(end - start)
+    time_file.write(end.strftime("End of the experiment: %d.%m.%Y - %H:%M:%S\n"))
+    time_file.write(f"Duration of experiment {diff[:diff.rfind('.')]}\n")
+    time_file.close()
