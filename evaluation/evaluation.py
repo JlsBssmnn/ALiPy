@@ -42,6 +42,9 @@ class ExperimentRunner:
         X = csv_dataframe.to_numpy()[:, :-1]
         y = csv_dataframe.to_numpy()[:, -1]
 
+        if type(y[0]) == str:
+            # convert the labels to integers
+            _, y = np.unique(y, return_inverse=True)
         if normalize:
             X = sklearn.preprocessing.minmax_scale(X)
         return ExperimentRunner(X=X,y=y,saving_path=saving_path)
