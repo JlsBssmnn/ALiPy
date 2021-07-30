@@ -137,7 +137,7 @@ class LAL_RL_StrategyLearner:
     def run_warm_start_episodes(self, n_episodes):
         # create function depending on verbose level
         if self.verbose >= 2:
-            p_bar = tqdm(total=n_episodes, desc="Warmstart episodes")
+            p_bar = tqdm(total=n_episodes, desc="Warmstart episodes", leave=False)
             def update():
                 p_bar.update()
             def close():
@@ -207,7 +207,7 @@ class LAL_RL_StrategyLearner:
     def run_training_iterations(self):
         # create function depending on verbose level
         if self.verbose >= 1:
-            p_bar_iter = tqdm(total=self.training_iterations, desc="Train iterations", leave=(not self.verbose==1))
+            p_bar_iter = tqdm(total=self.training_iterations, desc="Train iterations", leave=(self.verbose > 2))
             def update_iter():
                 p_bar_iter.update()
             def close_iter():

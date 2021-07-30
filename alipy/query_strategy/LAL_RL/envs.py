@@ -76,8 +76,6 @@ class LalEnv(object):
         self.episode_qualities = []
         # To train an initial classifier we need at least self.n_classes samples
         if n_start < self.n_classes:
-            print('n_start', n_start, ' number of points is less than the number of classes',
-                  self.n_classes, ', so we change it.')
             n_start = self.n_classes
         # Sample n_start datapoints
         self.indeces_known = []

@@ -70,6 +70,8 @@ def train_LAL_RL_strats(dataset_path, saving_path):
     all_datasets = [x[:-2] for x in all_datasets]
 
     for dataset in tqdm(all_datasets, desc="learn LAL_RL's"):
-        learner = LAL_RL_StrategyLearner(dataset_path, [x for x in all_datasets if x != dataset],
+        # not using EMNIST because it needs too much memory
+        learner = LAL_RL_StrategyLearner(dataset_path,
+            [x for x in all_datasets if x != dataset and not x.startswith("EMNIST")],
             size=100)
-        learner.train_query_strategy(saving_path, "LAL_RL_"+dataset, verbose=1)
+        learner.train_query_strategy(saving_path, "LAL_RL_"+dataset, verbose=2)
