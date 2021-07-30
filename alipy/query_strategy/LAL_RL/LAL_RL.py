@@ -49,10 +49,10 @@ class LAL_RL_StrategyLearner:
         self.replay_buffer = ReplayBuffer(buffer_size=replay_buffer_size, prior_exp=prioritized_replay_exponent)
 
 
-    def train_query_strategy(self, saving_path, file_name, warm_start_episodes=128, nn_updates_per_warm_start=100,
-                learning_rate=1e-3, batch_size=32, gamma=0.999, target_copy_factor=0.01,
+    def train_query_strategy(self, saving_path, file_name, warm_start_episodes=100, nn_updates_per_warm_start=100,
+                learning_rate=1e-4, batch_size=32, gamma=1, target_copy_factor=0.01,
                 training_iterations=1000, episodes_per_iteration=10, updates_per_iteration=60,
-                epsilon_start=1, epsilon_end=0.1, epsilon_step=1000, device=None, verbose=2):
+                epsilon_start=1, epsilon_end=0, epsilon_step=1000, device=None, verbose=2):
         """
         saving_path: the directory where the learnt strategy will be saved
         file_name: the file name for the learnt strategy
@@ -93,9 +93,9 @@ class LAL_RL_StrategyLearner:
         self.run_training_iterations()
 
 
-    def continue_training(self, saving_path, file_name, net_path, target_net_path=None, learning_rate=1e-3, batch_size=32,
-                gamma=0.999, target_copy_factor=0.01, training_iterations=1000, episodes_per_iteration=10, updates_per_iteration=60,
-                epsilon_start=1, epsilon_end=0.1, epsilon_step=1000, device=None, verbose=2):
+    def continue_training(self, saving_path, file_name, net_path, target_net_path=None, learning_rate=1e-4, batch_size=32,
+                gamma=1, target_copy_factor=0.01, training_iterations=1000, episodes_per_iteration=10, updates_per_iteration=60,
+                epsilon_start=1, epsilon_end=0, epsilon_step=1000, device=None, verbose=2):
         """
         net_path: the path to the q-network that has already been trained and shall now be further trained
         target_net_path: the corresponding target net if None then a copy of the net will be used as target net
