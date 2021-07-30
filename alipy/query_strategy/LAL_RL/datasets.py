@@ -83,6 +83,8 @@ class DatasetUCI(Dataset):
         data = pkl.load( open( self.path+"/"+self.dataset_name+".p", "rb" ) )
         X = data['X']
         y = data['y']
+        if len(y.shape) == 1:
+            y = y.reshape(y.shape[0], 1)
         dtst_size = np.size(y)
         
         # even datapoints subset
