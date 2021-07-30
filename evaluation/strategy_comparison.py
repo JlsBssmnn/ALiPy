@@ -16,7 +16,7 @@ def prepare_datasets(csv_directory, saving_directory):
     csv_datasets = ["australian", "DIABETES", "dwtc", "FERTILITY", "flag", "GERMAN", "glass",
         "HABERMAN", "HEART", "IONOSPHERE_ionosphere", "olivetti", "PLANNING", "zoo"]
     for name in csv_datasets:
-        csv_dataframe = pd.read_csv(os.path.join(csv_directory, name + ".csv"), header="LABEL", delimiter=",")
+        csv_dataframe = pd.read_csv(os.path.join(csv_directory, name + ".csv"), header=0, delimiter=",")
         csv_dataframe = csv_dataframe[[x for x in csv_dataframe if x!="LABEL"] + ["LABEL"]]
         X = csv_dataframe.to_numpy()[:, :-1]
         y = csv_dataframe.to_numpy()[:, -1]
