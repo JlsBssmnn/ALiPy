@@ -35,29 +35,22 @@ def prepare_datasets(csv_directory, saving_directory):
     # EMNIST and CIFAR-10
     for i in range(2):
         if i == 0:
-            train = torchvision.datasets.EMNIST(root=os.path.join(saving_directory, "pytorch_datasets"), split="byclass", train=True,
+            test = torchvision.datasets.EMNIST(root=os.path.join(saving_directory, "pytorch_datasets"), split="byclass", train=False,
                 download=True, transform=None)
-            test = torchvision.datasets.EMNIST(root=os.path.join(saving_directory, "pytorch_datasets"), split="byclass", train=True,
-                download=True, transform=None)
+            X_test = test.data.numpy()
+            y_test = test.targets.numpy()
         elif i == 1:
-            train = torchvision.datasets.CIFAR10(root=os.path.join(saving_directory, "pytorch_datasets"), split="byclass", train=True,
+            test = torchvision.datasets.CIFAR10(root=os.path.join(saving_directory, "pytorch_datasets"), train=False,
                 download=True, transform=None)
-            test = torchvision.datasets.CIFAR10(root=os.path.join(saving_directory, "pytorch_datasets"), split="byclass", train=True,
-                download=True, transform=None)
-    
-        X_train = train.data.numpy()
-        y_train = train.targets.numpy()
-        X_test = test.data.numpy()
-        y_test = test.targets.numpy()
+            X_test = test.data
+            y_test = test.targets
+            y_test = np.array(y_test)
 
-        X = np.concatenate((X_train, X_test), axis=0)
-        y = np.concatenate((y_train, y_test), axis=0)
+        X_test = X_test.reshape(X_test.shape[0], -1)
+        X_test = sklearn.preprocessing.minmax_scale(X_test)
+        y_test = y_test.flatten()
 
-        X = X.reshape(X.shape[0], -1)
-        X = sklearn.preprocessing.minmax_scale(X)
-        y = y.flatten()
-
-        dataset_dict = {'X': X, 'y': y}
+        dataset_dict = {'X': X_test, 'y': y_test}
     
         if i == 0:
             f = open(os.path.join(saving_directory, "EMNIST.p"), "wb")
@@ -73,9 +66,7 @@ def train_LAL_RL_strats(dataset_path, saving_path):
     This function will train LAL_RL strategies on all datasets except one
     and saves these strategies to the given saving_path
     """
-    all_datasets = [x for x in os.listdir(dataset_path) if os.path.isfile(x)]
-    if len([x for x in all_datasets if not x.endswith(".p")]) > 0:
-        raise ValueError("There are file in the given directory that don't end with .p")
+    all_datasets = [x for x in os.listdir(dataset_path) if x.endswith(".p")]
     all_datasets = [x[:-2] for x in all_datasets]
 
     for dataset in tqdm(all_datasets, desc="learn LAL_RL's"):
