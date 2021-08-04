@@ -4,9 +4,12 @@ import os
 import sklearn
 import pickle
 import torchvision
-from alipy.query_strategy import LAL_RL_StrategyLearner
+from alipy.query_strategy import LAL_RL_StrategyLearner, QueryInstanceLAL_RL
 from tqdm.auto import tqdm
 from datetime import datetime
+
+from alipy.query_strategy.query_labels import QueryInstanceBatchBALD
+from .evaluation import ExperimentRunner
 
 def prepare_datasets(csv_directory, saving_directory):
     """
@@ -64,10 +67,12 @@ def prepare_datasets(csv_directory, saving_directory):
 
 def train_LAL_RL_strats(dataset_path, saving_path):
     """
-    This function will train LAL_RL strategies on all datasets except one
+    This function will train LAL_RL strategies on all small datasets
     and saves these strategies to the given saving_path
     """
-    all_datasets = [x for x in os.listdir(dataset_path) if x.endswith(".p")]
+    # not using EMNIST and CIFAR-10 because it needs too much memory and time
+    all_datasets = [x for x in os.listdir(dataset_path) if x.endswith(".p") and 
+                        not (x.startswith("EMNIST") or x.startswith("CIFAR10"))]
     all_datasets = [x[:-2] for x in all_datasets]
 
     time_file = open(os.path.join(saving_path, "time_info.txt"), "x")
@@ -77,10 +82,8 @@ def train_LAL_RL_strats(dataset_path, saving_path):
     for dataset in tqdm(all_datasets, desc="learn LAL_RL's"):
         start_of_round = datetime.now()
 
-        # not using EMNIST because it needs too much memory
         learner = LAL_RL_StrategyLearner(dataset_path,
-            [x for x in all_datasets if x != dataset and not x.startswith("EMNIST")],
-            size=100)
+            [x for x in all_datasets if x != dataset], size=100)
         learner.train_query_strategy(saving_path, "LAL_RL_"+dataset, verbose=2)
 
         end_of_round = datetime.now()
@@ -92,3 +95,157 @@ def train_LAL_RL_strats(dataset_path, saving_path):
     time_file.write(end.strftime("End of the experiment: %d.%m.%Y - %H:%M:%S\n"))
     time_file.write(f"Duration of experiment {diff[:diff.rfind('.')]}\n")
     time_file.close()
+
+def test_LAL_RL(dataset_path, model_path, saving_path):
+    """
+    Runs the LAL_RL strategies saved at the model_path on all datasets and saves the result
+    """
+    all_datasets = [x for x in os.listdir(dataset_path) if x.endswith(".p")]
+
+    for dataset in all_datasets:
+        if dataset[:-2] not in os.listdir(saving_path):
+            os.mkdir(os.path.join(saving_path, dataset[:-2]))
+
+    print("Begin AL runs on the datasets")
+    for dataset in tqdm(all_datasets, desc="Datasets"):
+        data = pickle.load(open(os.path.join(dataset_path, dataset), "rb"))
+        X, y = data['X'], data['y']
+
+        if dataset in ["EMNIST", "CIFAR10"]:
+            al_cycles = 1000
+        else:
+            al_cycles = 50
+        
+        # required because of the structure of evaluation.py
+        query_strategy = LAL_RL_strategy(QueryInstanceLAL_RL(X, y, os.path.join(model_path, dataset[:-2]+".pt")))
+
+        runner = ExperimentRunner(X, y, os.path.join(saving_path, dataset[:-2]))
+        runner.run_one_strategy("QueryInstanceRandom", 100, al_cycles, batch_size=5, test_ratio=0.5, initial_label_rate='min',
+            model=sklearn.ensemble.RandomForestClassifier(), file_name="LAL_RL", custom_query_strat=query_strategy,
+            performance_metric="f1_score", log_timing=True)
+
+
+class LAL_RL_strategy:
+    def __init__(self, lal_rl):
+        self.lal_rl = lal_rl
+
+    def select(self, label_ind, unlab_ind, batch_size, model_copy, query_strategy, device=None):
+        return self.lal_rl.select(label_ind, unlab_ind, model_copy, batch_size)
+
+
+def test_batchBALD_BRF(dataset_path, saving_path, dropout_rate):
+    """
+    Tests batchBALD on the datasets with a bayesian random forest classifier
+    """
+    all_datasets = [x for x in os.listdir(dataset_path) if x.endswith(".p")]
+
+    for dataset in all_datasets:
+        if dataset[:-2] not in os.listdir(saving_path):
+            os.mkdir(os.path.join(saving_path, dataset[:-2]))
+
+    print("Begin AL runs on the datasets")
+    for dataset in tqdm(all_datasets, desc="Datasets"):
+        data = pickle.load(open(os.path.join(dataset_path, dataset), "rb"))
+        X, y = data['X'], data['y']
+        
+        if dataset in ["EMNIST", "CIFAR10"]:
+            al_cycles = 1000
+        else:
+            al_cycles = 50
+
+        # required because of the structure of evaluation.py
+        query_strategy = BatchBALD_Query_Strategy(QueryInstanceBatchBALD(X, y))
+
+        runner = ExperimentRunner(X, y, os.path.join(saving_path, dataset[:-2]))
+        runner.run_one_strategy("QueryInstanceRandom", 100, al_cycles, batch_size=5, test_ratio=0.5, initial_label_rate='min',
+            model=batchBALD_Model(BayesianRandomForest(dropout_rate=dropout_rate)), file_name="batchBALD",
+            custom_query_strat=query_strategy, performance_metric="f1_score", log_timing=True)
+
+
+class BayesianRandomForest(sklearn.ensemble.RandomForestClassifier):
+    """
+    This is a RandomForestClassifier with dropout. This means that some trees are deleted
+    if activate_dropout is called. If deactivate_dropout is classed they are added again.
+    """
+    def __init__(self, dropout_rate, n_estimators=100):
+        super().__init__(n_estimators=n_estimators)
+        self.dropout = False
+        self.dropout_rate = dropout_rate
+        self.n_dropouts = int(np.round(self.n_estimators * self.dropout_rate))
+    
+    def activate_dropout(self):
+        if self.dropout:
+            return
+        self.deleted_trees = []
+        for i in range(self.n_dropouts):
+            self.deleted_trees.append(self.estimators_.pop(np.random.choice(len(self.estimators_))))
+        self.dropout = True
+        
+    def deactivate_dropout(self):
+        if not self.dropout:
+            return
+        for i in range(len(self.deleted_trees)):
+            self.estimators_.append(self.deleted_trees.pop(0))
+        self.dropout = False
+            
+    def change_dropout(self):
+        if self.dropout:
+            self.deactivate_dropout()
+            self.activate_dropout()
+        else:
+            self.activate_dropout()
+            
+
+class BatchBALD_Query_Strategy:
+    def __init__(self, batchBALD):
+        self.batchBALD = batchBALD
+
+    def select(self, label_ind, unlab_ind, batch_size, model_copy, query_strategy, device):
+        return self.batchBALD.select(label_ind, unlab_ind, model_copy, batch_size, num_samples=10000)
+
+
+class batchBALD_Model:
+    def __init__(self, classifier):
+        self.classifier = classifier
+
+    def fit(self, X, y):
+        return self.classifier.fit(X,y)
+        
+    def predict(self, X):
+        return self.classifier.predict(X)
+
+    def predict_proba(self, X):
+        self.classifier.activate_dropout()
+        pred = self.classifier.predict_proba(X).reshape(-1,1,2)
+        for _ in range(9):
+            self.classifier.change_dropout()
+            pred = np.concatenate((pred, self.classifier.predict_proba(X).reshape(-1,1,2)), axis=1)
+        self.classifier.deactivate_dropout()
+        return pred
+
+def test_unc_rand(dataset_path, saving_path):
+    all_datasets = [x for x in os.listdir(dataset_path) if x.endswith(".p")]
+
+    for dataset in all_datasets:
+        if dataset[:-2] not in os.listdir(saving_path):
+            os.mkdir(os.path.join(saving_path, dataset[:-2]))
+
+    print("Begin AL runs on the datasets")
+    for dataset in tqdm(all_datasets, desc="Datasets"):
+        data = pickle.load(open(os.path.join(dataset_path, dataset), "rb"))
+        X, y = data['X'], data['y']
+        
+        if dataset in ["EMNIST", "CIFAR10"]:
+            al_cycles = 1000
+        else:
+            al_cycles = 50
+
+        runner = ExperimentRunner(X, y, os.path.join(saving_path, dataset[:-2]))
+        runner.run_one_strategy("QueryInstanceRandom", 100, al_cycles, batch_size=5, test_ratio=0.5, initial_label_rate='min',
+            model=sklearn.ensemble.RandomForestClassifier(), file_name="random",
+            performance_metric="f1_score", log_timing=True)
+
+        runner = ExperimentRunner(X, y, os.path.join(saving_path, dataset[:-2]))
+        runner.run_one_strategy("QueryInstanceUncertainty", 100, al_cycles, batch_size=5, test_ratio=0.5, initial_label_rate='min',
+            model=sklearn.ensemble.RandomForestClassifier(), file_name="uncertainty",
+            performance_metric="f1_score", log_timing=True)
