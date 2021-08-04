@@ -89,6 +89,15 @@ def train_LAL_RL_strats(dataset_path, saving_path):
         end_of_round = datetime.now()
         diff = str(end_of_round - start_of_round)
         time_file.write(f"\tDuration for dataset {dataset} --{diff[:diff.rfind('.')]}--\n")
+    else:
+        start_of_round = datetime.now()
+
+        learner = LAL_RL_StrategyLearner(dataset_path, all_datasets, size=100)
+        learner.train_query_strategy(saving_path, "LAL_RL_all_datasets", verbose=2)
+
+        end_of_round = datetime.now()
+        diff = str(end_of_round - start_of_round)
+        time_file.write(f"\tDuration for all datasets --{diff[:diff.rfind('.')]}--\n")
     
     end = datetime.now()
     diff = str(end - start)
@@ -117,7 +126,7 @@ def test_LAL_RL(dataset_path, model_path, saving_path):
             al_cycles = 50
         
         # required because of the structure of evaluation.py
-        query_strategy = LAL_RL_strategy(QueryInstanceLAL_RL(X, y, os.path.join(model_path, dataset[:-2]+".pt")))
+        query_strategy = LAL_RL_strategy(QueryInstanceLAL_RL(X, y, os.path.join(model_path, "LAL_RL_"+dataset[:-2]+".pt")))
 
         runner = ExperimentRunner(X, y, os.path.join(saving_path, dataset[:-2]))
         runner.run_one_strategy("QueryInstanceRandom", 100, al_cycles, batch_size=5, test_ratio=0.5, initial_label_rate='min',
