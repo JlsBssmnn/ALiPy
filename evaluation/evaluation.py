@@ -5,6 +5,7 @@ import copy
 from os import listdir
 from os.path import isfile, isdir, join, abspath
 import pandas as pd
+from prettytable import PrettyTable
 
 import sklearn
 from sklearn import metrics
@@ -295,7 +296,7 @@ class ExperimentRunner:
         
 
 class ExperimentPlotter:
-    def plot_by_given_prefixes(self, directory, prefixes, labels=None, x_axis='num_of_queries', batch_size=None):
+    def plot_by_given_prefixes(self, directory, prefixes, labels=None, x_axis='num_of_queries', batch_size=None, plot_exact_values=False):
         """
         Plots the results that are found in the given directory but only considers files that start
         with a prefix inside of the prefixes list. Files that start with the same prefix are
@@ -328,7 +329,7 @@ class ExperimentPlotter:
         if x_axis == 'num_of_queries':
             self.plot_by_queries(analyser)
         elif x_axis == 'labeled_data':
-            self.plot_by_labeled_data(analyser, prefixes if labels == None else labels, batch_size)
+            return self.plot_by_labeled_data(analyser, prefixes if labels == None else labels, batch_size, plot_exact_values=plot_exact_values)
 
     def get_results_by_given_prefixes(self, directory, prefixes):
         if not isdir(directory):
@@ -360,7 +361,7 @@ class ExperimentPlotter:
         print(analyser)
         analyser.plot_learning_curves(title="Results", std_area=True, saving_path=None)
     
-    def plot_by_labeled_data(self, analyser, method_names, batch_sizes):
+    def plot_by_labeled_data(self, analyser, method_names, batch_sizes, plot_exact_values=False):
         values = []
         std_values = []
         auc = dict()
@@ -374,6 +375,13 @@ class ExperimentPlotter:
             plt.plot(x_axis, values[j], label=method_names[j])
             plt.fill_between(x_axis, values[j] + std_values[j], values[j] - std_values[j], alpha=0.3)
             auc[method_names[j]] = metrics.auc(x_axis, values[j]) / metrics.auc(x_axis, np.ones(len(x_axis)))
+
+            if plot_exact_values:
+                print(method_names[j] + ":")
+                t = PrettyTable()
+                t.add_column("x_axis", x_axis)
+                t.add_column("y_axis", values[j])
+                print(t)
             
         print("The auc-scores:\n", auc)
         plt.xlabel("Acquired dataset size")
@@ -381,6 +389,7 @@ class ExperimentPlotter:
         plt.title("Results")
         plt.legend(fancybox=True, framealpha=0.5)
         plt.show()
+        return values
 
     def plot_numpy_array(self, directory, file_names, num_queries=None, fill="std"):
         if type(num_queries) == int:
