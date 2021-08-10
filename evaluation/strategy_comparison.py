@@ -146,7 +146,7 @@ def test_batchBALD_BRF(dataset_path, saving_path, dropout_rate):
     """
     Tests batchBALD on the datasets with a bayesian random forest classifier
     """
-    all_datasets = [x for x in os.listdir(dataset_path) if x.endswith(".p")]
+    all_datasets = [x for x in os.listdir(dataset_path) if x.endswith(".p") and not x.startswith("australian") and not x.startswith("DIABETES")]
 
     for dataset in all_datasets:
         if dataset[:-2] not in os.listdir(saving_path):
@@ -216,8 +216,11 @@ class BatchBALD_Query_Strategy:
 class batchBALD_Model:
     def __init__(self, classifier):
         self.classifier = classifier
+        self.num_classes = None
 
     def fit(self, X, y):
+        if self.num_classes == None:
+            self.num_classes = np.unique(y).size
         return self.classifier.fit(X,y)
         
     def predict(self, X):
@@ -225,10 +228,10 @@ class batchBALD_Model:
 
     def predict_proba(self, X):
         self.classifier.activate_dropout()
-        pred = self.classifier.predict_proba(X).reshape(-1,1,2)
+        pred = self.classifier.predict_proba(X).reshape(-1,1,self.num_classes)
         for _ in range(9):
             self.classifier.change_dropout()
-            pred = np.concatenate((pred, self.classifier.predict_proba(X).reshape(-1,1,2)), axis=1)
+            pred = np.concatenate((pred, self.classifier.predict_proba(X).reshape(-1,1,self.num_classes)), axis=1)
         self.classifier.deactivate_dropout()
         return pred
 
