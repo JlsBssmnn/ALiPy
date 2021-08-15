@@ -391,9 +391,11 @@ class ExperimentPlotter:
         plt.show()
         return values
 
-    def plot_numpy_array(self, directory, file_names, num_queries=None, fill="std"):
+    def plot_numpy_array(self, directory, file_names, num_queries=None, fill="std", plot_exact_values=False):
         if type(num_queries) == int:
             num_queries = [num_queries]*len(file_names)
+
+        auc = dict()
         for i,name in enumerate(file_names):
             data, std = self.get_numpy_array_data(directory+"/"+name+".npy",
                         num_queries[i] if num_queries != None else None)
@@ -404,6 +406,16 @@ class ExperimentPlotter:
             elif fill == "standard_error":
                 std /= np.sqrt(data.shape[0])
                 plt.fill_between(x_axis, data+std, data-std, alpha=0.3)
+            auc[name] = metrics.auc(x_axis, data) / metrics.auc(x_axis, np.ones(len(x_axis)))
+
+        if plot_exact_values:
+            print(name + ":")
+            t = PrettyTable()
+            t.add_column("x_axis", x_axis)
+            t.add_column("y_axis", data)
+            print(t)
+
+        print("The auc-scores:\n", auc)
 
         plt.xlabel("Number of queries")
         plt.ylabel("Target quality")
@@ -432,6 +444,22 @@ class ExperimentPlotter:
         plt.legend(fancybox=True, framealpha=0.5)
         plt.show()
 
+    def alipy_states_to_numpy(self, directory, destination, name):
+        """
+        This method takes all files in the given directory that contain 'round' and end with .pkl
+        and interprets them as ALiPy state objects. The content of these objects is read and
+        aggregated to one learning curve which is saved as a numpy array at the given destination
+        """
+        files = os.listdir(directory)
+        files = [x for x in files if "round" in x and x.endswith(".pkl")]
+        all_states = [StateIO.load(join(directory, x)) for x in files]
+        analyser = ExperimentAnalyser()
+        analyser.add_method("whatever", all_states)
+
+        method_data = analyser.get_extracted_data("whatever")
+        method_data = np.array(method_data)
+
+        np.save(join(destination, name), method_data)
 
 def run_experiment(X,y,strategies=["QueryInstanceUncertainty"],num_splits=5,num_of_queries=20,batch_size=1,
                     test_ratio=0.3, initial_label_rate=0.1, saving_path=None, show_results=True):
