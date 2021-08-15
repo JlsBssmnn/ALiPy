@@ -78,32 +78,38 @@ def train_LAL_RL_strats(dataset_path, saving_path):
     time_file = open(os.path.join(saving_path, "time_info.txt"), "x")
     start = datetime.now()
     time_file.write(start.strftime("Start of the experiment: %d.%m.%Y - %H:%M:%S\n"))
+    p = tqdm(total = len(all_datasets) + 1)
 
-    for dataset in tqdm(all_datasets, desc="learn LAL_RL's"):
+    for dataset in all_datasets:
+        p.set_description("learn LAL_RL for " + dataset)
         start_of_round = datetime.now()
 
         learner = LAL_RL_StrategyLearner(dataset_path,
             [x for x in all_datasets if x != dataset], size=100)
-        learner.train_query_strategy(saving_path, "LAL_RL_"+dataset, verbose=2)
+        learner.train_query_strategy(saving_path, "LAL_RL_"+dataset, verbose=3)
 
         end_of_round = datetime.now()
         diff = str(end_of_round - start_of_round)
         time_file.write(f"\tDuration for dataset {dataset} --{diff[:diff.rfind('.')]}--\n")
+        p.update()
     else:
+        p.set_description("learn LAL_RL for all datasets")
         start_of_round = datetime.now()
 
         learner = LAL_RL_StrategyLearner(dataset_path, all_datasets, size=100)
-        learner.train_query_strategy(saving_path, "LAL_RL_all_datasets", verbose=2)
+        learner.train_query_strategy(saving_path, "LAL_RL_all_datasets", verbose=3)
 
         end_of_round = datetime.now()
         diff = str(end_of_round - start_of_round)
         time_file.write(f"\tDuration for all datasets --{diff[:diff.rfind('.')]}--\n")
+        p.update()
     
     end = datetime.now()
     diff = str(end - start)
     time_file.write(end.strftime("End of the experiment: %d.%m.%Y - %H:%M:%S\n"))
     time_file.write(f"Duration of experiment {diff[:diff.rfind('.')]}\n")
     time_file.close()
+    p.close()
 
 def test_LAL_RL(dataset_path, model_path, saving_path):
     """
@@ -116,7 +122,9 @@ def test_LAL_RL(dataset_path, model_path, saving_path):
             os.mkdir(os.path.join(saving_path, dataset[:-2]))
 
     print("Begin AL runs on the datasets")
-    for dataset in tqdm(all_datasets, desc="Datasets"):
+    p = tqdm(total = len(all_datasets))
+    for dataset in all_datasets:
+        p.set_description("LAL_RL test on " + dataset)
         data = pickle.load(open(os.path.join(dataset_path, dataset), "rb"))
         X, y = data['X'], data['y']
 
@@ -132,6 +140,8 @@ def test_LAL_RL(dataset_path, model_path, saving_path):
         runner.run_one_strategy("QueryInstanceRandom", 100, al_cycles, batch_size=5, test_ratio=0.5, initial_label_rate='min',
             model=sklearn.ensemble.RandomForestClassifier(), file_name="LAL_RL", custom_query_strat=query_strategy,
             performance_metric="f1_score", log_timing=True)
+        p.update()
+    p.close()
 
 
 class LAL_RL_strategy:
@@ -153,7 +163,9 @@ def test_batchBALD_BRF(dataset_path, saving_path, dropout_rate):
             os.mkdir(os.path.join(saving_path, dataset[:-2]))
 
     print("Begin AL runs on the datasets")
-    for dataset in tqdm(all_datasets, desc="Datasets"):
+    p = tqdm(total = len(all_datasets))
+    for dataset in all_datasets:
+        p.set_description("batchBALD test on " + dataset)
         data = pickle.load(open(os.path.join(dataset_path, dataset), "rb"))
         X, y = data['X'], data['y']
         
@@ -169,6 +181,8 @@ def test_batchBALD_BRF(dataset_path, saving_path, dropout_rate):
         runner.run_one_strategy("QueryInstanceRandom", 100, al_cycles, batch_size=5, test_ratio=0.5, initial_label_rate='min',
             model=batchBALD_Model(BayesianRandomForest(dropout_rate=dropout_rate)), file_name="batchBALD",
             custom_query_strat=query_strategy, performance_metric="f1_score", log_timing=True)
+        p.update()
+    p.close()
 
 
 class BayesianRandomForest(sklearn.ensemble.RandomForestClassifier):
@@ -243,7 +257,9 @@ def test_unc_rand(dataset_path, saving_path):
             os.mkdir(os.path.join(saving_path, dataset[:-2]))
 
     print("Begin AL runs on the datasets")
-    for dataset in tqdm(all_datasets, desc="Datasets"):
+    p = tqdm(total = len(all_datasets))
+    for dataset in all_datasets:
+        p.set_description("random test on " + dataset)
         data = pickle.load(open(os.path.join(dataset_path, dataset), "rb"))
         X, y = data['X'], data['y']
         
@@ -257,7 +273,11 @@ def test_unc_rand(dataset_path, saving_path):
             model=sklearn.ensemble.RandomForestClassifier(), file_name="random",
             performance_metric="f1_score", log_timing=True)
 
+        p.set_description("uncertainty test on " + dataset)
+
         runner = ExperimentRunner(X, y, os.path.join(saving_path, dataset[:-2]))
         runner.run_one_strategy("QueryInstanceUncertainty", 100, al_cycles, batch_size=5, test_ratio=0.5, initial_label_rate='min',
             model=sklearn.ensemble.RandomForestClassifier(), file_name="uncertainty",
             performance_metric="f1_score", log_timing=True)
+        p.update()
+    p.close()
