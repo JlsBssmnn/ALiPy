@@ -3,6 +3,7 @@ import pandas as pd
 import os
 import sklearn
 import pickle
+from sklearn import metrics
 import torchvision
 from alipy.query_strategy import LAL_RL_StrategyLearner, QueryInstanceLAL_RL
 from tqdm.auto import tqdm
@@ -65,7 +66,7 @@ def prepare_datasets(csv_directory, saving_directory):
     print("Successfully saved EMNIST and CIFAR-10")
 
 
-def train_LAL_RL_strats(dataset_path, saving_path):
+def train_LAL_RL_strats(dataset_path, saving_path, datasets="all"):
     """
     This function will train LAL_RL strategies on all small datasets
     and saves these strategies to the given saving_path
@@ -75,17 +76,20 @@ def train_LAL_RL_strats(dataset_path, saving_path):
                         not (x.startswith("EMNIST") or x.startswith("CIFAR10"))]
     all_datasets = [x[:-2] for x in all_datasets]
 
+    assert set(all_datasets).issuperset(set(datasets)) or datasets == "all"
+    eval_datasets = all_datasets if datasets == "all" else datasets
+
     time_file = open(os.path.join(saving_path, "time_info.txt"), "x")
     start = datetime.now()
     time_file.write(start.strftime("Start of the experiment: %d.%m.%Y - %H:%M:%S\n"))
-    p = tqdm(total = len(all_datasets) + 1)
+    p = tqdm(total = len(eval_datasets) + 1)
 
-    for dataset in all_datasets:
+    for dataset in eval_datasets:
         p.set_description("learn LAL_RL for " + dataset)
         start_of_round = datetime.now()
 
         learner = LAL_RL_StrategyLearner(dataset_path,
-            [x for x in all_datasets if x != dataset], size=100)
+            [x for x in all_datasets if x != dataset], size=100, quality_method=metrics.f1_score)
         learner.train_query_strategy(saving_path, "LAL_RL_"+dataset, verbose=3)
 
         end_of_round = datetime.now()
@@ -96,7 +100,7 @@ def train_LAL_RL_strats(dataset_path, saving_path):
         p.set_description("learn LAL_RL for all datasets")
         start_of_round = datetime.now()
 
-        learner = LAL_RL_StrategyLearner(dataset_path, all_datasets, size=100)
+        learner = LAL_RL_StrategyLearner(dataset_path, all_datasets, size=100, quality_method=metrics.f1_score)
         learner.train_query_strategy(saving_path, "LAL_RL_all_datasets", verbose=3)
 
         end_of_round = datetime.now()
@@ -111,17 +115,12 @@ def train_LAL_RL_strats(dataset_path, saving_path):
     time_file.close()
     p.close()
 
-def test_LAL_RL(dataset_path, model_path, saving_path):
+def test_LAL_RL(dataset_path, model_path, saving_path, datasets="all"):
     """
     Runs the LAL_RL strategies saved at the model_path on all datasets and saves the result
     """
-    all_datasets = [x for x in os.listdir(dataset_path) if x.endswith(".p")]
-
-    for dataset in all_datasets:
-        if dataset[:-2] not in os.listdir(saving_path):
-            os.mkdir(os.path.join(saving_path, dataset[:-2]))
-
-    print("Begin AL runs on the datasets")
+    all_datasets = initialize(dataset_path, saving_path, datasets)
+    
     p = tqdm(total = len(all_datasets))
     for dataset in all_datasets:
         p.set_description("LAL_RL test on " + dataset)
@@ -130,11 +129,13 @@ def test_LAL_RL(dataset_path, model_path, saving_path):
 
         if dataset in ["EMNIST.p", "CIFAR10.p"]:
             al_cycles = 1000
+            model_name = "LAL_RL_all_datasets.pt"
         else:
             al_cycles = 50
+            model_name = "LAL_RL_"+dataset[:-2]+".pt"
         
         # required because of the structure of evaluation.py
-        query_strategy = LAL_RL_strategy(QueryInstanceLAL_RL(X, y, os.path.join(model_path, "LAL_RL_"+dataset[:-2]+".pt")))
+        query_strategy = LAL_RL_strategy(QueryInstanceLAL_RL(X, y, os.path.join(model_path, model_name)))
 
         runner = ExperimentRunner(X, y, os.path.join(saving_path, dataset[:-2]))
         runner.run_one_strategy("QueryInstanceRandom", 100, al_cycles, batch_size=5, test_ratio=0.5, initial_label_rate='min',
@@ -152,17 +153,12 @@ class LAL_RL_strategy:
         return self.lal_rl.select(label_ind, unlab_ind, model_copy, batch_size)
 
 
-def test_batchBALD_BRF(dataset_path, saving_path, dropout_rate):
+def test_batchBALD_BRF(dataset_path, saving_path, dropout_rate, datasets="all"):
     """
     Tests batchBALD on the datasets with a bayesian random forest classifier
     """
-    all_datasets = [x for x in os.listdir(dataset_path) if x.endswith(".p") and not x.startswith("australian") and not x.startswith("DIABETES")]
-
-    for dataset in all_datasets:
-        if dataset[:-2] not in os.listdir(saving_path):
-            os.mkdir(os.path.join(saving_path, dataset[:-2]))
-
-    print("Begin AL runs on the datasets")
+    all_datasets = initialize(dataset_path, saving_path, datasets)
+    
     p = tqdm(total = len(all_datasets))
     for dataset in all_datasets:
         p.set_description("batchBALD test on " + dataset)
@@ -249,14 +245,9 @@ class batchBALD_Model:
         self.classifier.deactivate_dropout()
         return pred
 
-def test_unc_rand(dataset_path, saving_path):
-    all_datasets = [x for x in os.listdir(dataset_path) if x.endswith(".p")]
+def test_unc_rand(dataset_path, saving_path, datasets="all"):
+    all_datasets = initialize(dataset_path, saving_path, datasets)
 
-    for dataset in all_datasets:
-        if dataset[:-2] not in os.listdir(saving_path):
-            os.mkdir(os.path.join(saving_path, dataset[:-2]))
-
-    print("Begin AL runs on the datasets")
     p = tqdm(total = len(all_datasets))
     for dataset in all_datasets:
         p.set_description("random test on " + dataset)
@@ -281,3 +272,27 @@ def test_unc_rand(dataset_path, saving_path):
             performance_metric="f1_score", log_timing=True)
         p.update()
     p.close()
+
+
+def initialize(dataset_path, saving_path, datasets="all"):
+    all_datasets = [x for x in os.listdir(dataset_path) if x.endswith(".p")]
+
+    assert set(all_datasets).issuperset(set(datasets)) or datasets == "all"
+    if datasets is not "all":
+        all_datasets = datasets
+
+    # don't prioritize CIFAR10 and EMINST
+    if "CIFAR10.p" in all_datasets:
+        all_datasets.remove("CIFAR10.p")
+        all_datasets.append("CIFAR10.p")
+    if "EMNIST.p" in all_datasets:
+        all_datasets.remove("EMNIST.p")
+        all_datasets.append("EMNIST.p")
+
+    for dataset in all_datasets:
+        if dataset[:-2] not in os.listdir(saving_path):
+            os.mkdir(os.path.join(saving_path, dataset[:-2]))
+
+    print("Begin AL runs on", all_datasets)
+
+    return all_datasets
