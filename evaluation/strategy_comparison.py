@@ -128,7 +128,7 @@ def test_LAL_RL(dataset_path, model_path, saving_path):
         data = pickle.load(open(os.path.join(dataset_path, dataset), "rb"))
         X, y = data['X'], data['y']
 
-        if dataset in ["EMNIST", "CIFAR10"]:
+        if dataset in ["EMNIST.p", "CIFAR10.p"]:
             al_cycles = 1000
         else:
             al_cycles = 50
@@ -169,7 +169,7 @@ def test_batchBALD_BRF(dataset_path, saving_path, dropout_rate):
         data = pickle.load(open(os.path.join(dataset_path, dataset), "rb"))
         X, y = data['X'], data['y']
         
-        if dataset in ["EMNIST", "CIFAR10"]:
+        if dataset in ["EMNIST.p", "CIFAR10.p"]:
             al_cycles = 1000
         else:
             al_cycles = 50
@@ -263,7 +263,7 @@ def test_unc_rand(dataset_path, saving_path):
         data = pickle.load(open(os.path.join(dataset_path, dataset), "rb"))
         X, y = data['X'], data['y']
         
-        if dataset in ["EMNIST", "CIFAR10"]:
+        if dataset in ["EMNIST.p", "CIFAR10.p"]:
             al_cycles = 1000
         else:
             al_cycles = 50
