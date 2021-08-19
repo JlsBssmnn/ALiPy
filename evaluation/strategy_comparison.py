@@ -65,6 +65,12 @@ def prepare_datasets(csv_directory, saving_directory):
         f.close()   
     print("Successfully saved EMNIST and CIFAR-10")
 
+def quality_function(y_true, y_pred):
+    """
+    This function computes the f1 score with fixed parameters, the result is equal to
+    >>> sklearn.metrics.f1_score(y_true, y_pred, average="weighted", zero_division=0)
+    """
+    return metrics.f1_score(y_true, y_pred, average="weighted", zero_division=0)
 
 def train_LAL_RL_strats(dataset_path, saving_path, datasets="all"):
     """
@@ -89,7 +95,7 @@ def train_LAL_RL_strats(dataset_path, saving_path, datasets="all"):
         start_of_round = datetime.now()
 
         learner = LAL_RL_StrategyLearner(dataset_path,
-            [x for x in all_datasets if x != dataset], size=100, quality_method=metrics.f1_score)
+            [x for x in all_datasets if x != dataset], size=100, quality_method=quality_function)
         learner.train_query_strategy(saving_path, "LAL_RL_"+dataset, verbose=3)
 
         end_of_round = datetime.now()
@@ -100,7 +106,7 @@ def train_LAL_RL_strats(dataset_path, saving_path, datasets="all"):
         p.set_description("learn LAL_RL for all datasets")
         start_of_round = datetime.now()
 
-        learner = LAL_RL_StrategyLearner(dataset_path, all_datasets, size=100, quality_method=metrics.f1_score)
+        learner = LAL_RL_StrategyLearner(dataset_path, all_datasets, size=100, quality_method=quality_function)
         learner.train_query_strategy(saving_path, "LAL_RL_all_datasets", verbose=3)
 
         end_of_round = datetime.now()
