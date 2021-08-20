@@ -302,3 +302,24 @@ def initialize(dataset_path, saving_path, datasets="all"):
     print("Begin AL runs on", all_datasets)
 
     return all_datasets
+
+
+def test_unc_rand2(dataset_path, saving_path, datasets="all"):
+    all_datasets = initialize(dataset_path, saving_path, datasets)
+
+    p = tqdm(total = len(all_datasets))
+    for dataset in all_datasets:
+        p.set_description("random test on " + dataset)
+        data = pickle.load(open(os.path.join(dataset_path, dataset), "rb"))
+        X, y = data['X'], data['y']
+        
+        runner = ExperimentRunner(X, y, os.path.join(saving_path, dataset[:-2], "random"), dataset[:-2])
+        runner.evaluation("QueryInstanceRandom")
+
+
+        p.set_description("uncertainty test on " + dataset)
+
+        runner = ExperimentRunner(X, y, os.path.join(saving_path, dataset[:-2], "uncertainty"), dataset[:-2])
+        runner.evaluation("QueryInstanceUncertainty")
+        p.update()
+    p.close()

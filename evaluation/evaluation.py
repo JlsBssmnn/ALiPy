@@ -10,6 +10,8 @@ from prettytable import PrettyTable
 import sklearn
 from sklearn import metrics
 from alipy import ToolBox
+from alipy.experiment.al_experiment import AlExperiment
+from alipy.query_strategy import query_labels
 from alipy.experiment import StateIO, ExperimentAnalyser
 from datetime import datetime
 import matplotlib.pyplot as plt
@@ -18,10 +20,11 @@ from alipy.metrics import performance
 from alipy.query_strategy.LAL_RL.Test_AL import check_performance, check_performance_for_figure
 
 class ExperimentRunner:
-    def __init__(self,X,y,saving_path=None):
+    def __init__(self,X,y,saving_path=None, dataset_name=None):
         self.X = X
         self.y = y
         self.saving_path = saving_path
+        self.dataset_name = dataset_name
 
     @staticmethod
     def initialize_with_csv(csv_path, saving_path, header=0, delimiter=',', label_columnn_name=None,
@@ -294,9 +297,52 @@ class ExperimentRunner:
 
         return num_of_queries
         
+    def evaluation(self, query_strat, model=None, model_path=None):
+        # write time information
+        self.time_file = open(join(self.saving_path, "time_info.txt"), "x")
+        start = datetime.now()
+        self.time_file.write(start.strftime("Start of the experiment: %d.%m.%Y - %H:%M:%S\n"))
+
+        test_ratio = 0.5
+        initial_label_rate = len(np.unique(self.y))/(len(self.y)*(1-test_ratio))
+        batch_size = 5
+        if self.dataset_name in ["CIFAR10", "EMNIST"]:
+            num_of_queries = 1000
+        else:
+            num_of_queries = 50
+
+        ex = AlExperiment(self.X,self.y,
+            model=sklearn.ensemble.RandomForestClassifier() if model == None else model,
+            stopping_criteria="num_of_queries",
+            stopping_value=num_of_queries,
+            batch_size=batch_size)
+        if query_strat == "QueryInstanceBatchBALD":
+            ex.set_query_strategy(getattr(query_labels, query_strat), model=ex._model, num_samples=10000, verbose=0)
+        elif query_strat == "QueryInstanceLAL_RL":
+            ex.set_query_strategy(getattr(query_labels, query_strat), model=ex._model, model_path=model_path)
+        else:
+            ex.set_query_strategy(getattr(query_labels, query_strat))
+
+        # set f1 score as the metric
+        ex._performance_metric_name = "f1_score"
+        ex._performance_metric = f1_score
+        ex._metrics = True
+
+        ex.split_AL(test_ratio, initial_label_rate, 1)
+
+        ex.start_query(False, saving_path=self.saving_path, verbose=False)
+
+        # write time information
+        end = datetime.now()
+        diff = str(end - start)
+        self.time_file.write(end.strftime("End of the experiment: %d.%m.%Y - %H:%M:%S\n"))
+        self.time_file.write(f"Duration of experiment {diff[:diff.rfind('.')]}\n")
+        self.time_file.close()
+
 
 class ExperimentPlotter:
-    def plot_by_given_prefixes(self, directory, prefixes, labels=None, x_axis='num_of_queries', batch_size=None, plot_exact_values=False):
+    def plot_by_given_prefixes(self, directory, prefixes, labels=None, x_axis='num_of_queries', batch_size=None,
+        plot_exact_values=False, fill="std"):
         """
         Plots the results that are found in the given directory but only considers files that start
         with a prefix inside of the prefixes list. Files that start with the same prefix are
@@ -329,7 +375,8 @@ class ExperimentPlotter:
         if x_axis == 'num_of_queries':
             self.plot_by_queries(analyser)
         elif x_axis == 'labeled_data':
-            return self.plot_by_labeled_data(analyser, prefixes if labels == None else labels, batch_size, plot_exact_values=plot_exact_values)
+            return self.plot_by_labeled_data(analyser, prefixes if labels == None else labels, batch_size,
+                plot_exact_values=plot_exact_values, fill=fill)
 
     def get_results_by_given_prefixes(self, directory, prefixes):
         if not isdir(directory):
@@ -361,7 +408,7 @@ class ExperimentPlotter:
         print(analyser)
         analyser.plot_learning_curves(title="Results", std_area=True, saving_path=None)
     
-    def plot_by_labeled_data(self, analyser, method_names, batch_sizes, plot_exact_values=False):
+    def plot_by_labeled_data(self, analyser, method_names, batch_sizes, plot_exact_values=False, fill="std"):
         values = []
         std_values = []
         auc = dict()
@@ -373,6 +420,8 @@ class ExperimentPlotter:
         for j in range(len(method_names)):
             x_axis = np.arange(0, (len(values[j])-1)*batch_sizes[j] + 1, batch_sizes[j],int)
             plt.plot(x_axis, values[j], label=method_names[j])
+            if fill == "standard_error":
+                std_values[j] /= np.sqrt(values[j].shape[0])
             plt.fill_between(x_axis, values[j] + std_values[j], values[j] - std_values[j], alpha=0.3)
             auc[method_names[j]] = metrics.auc(x_axis, values[j]) / metrics.auc(x_axis, np.ones(len(x_axis)))
 
@@ -553,3 +602,11 @@ def plot_results_from_directory(directory):
         analyser.add_method(strategies[i], results[i])
     print(analyser)
     analyser.plot_learning_curves(title="Results", std_area=True, saving_path=None)
+
+
+def f1_score(y_true, y_pred):
+    """
+    This function computes the f1 score with fixed parameters, the result is equal to
+    >>> sklearn.metrics.f1_score(y_true, y_pred, average="weighted", zero_division=0)
+    """
+    return metrics.f1_score(y_true, y_pred, average="weighted", zero_division=0)
