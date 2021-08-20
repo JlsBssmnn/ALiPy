@@ -1,4 +1,4 @@
-from shutil import copy
+import copy
 from .envs import LalEnvTargetAccuracy
 from .datasets import DatasetUCI
 from .helpers import ReplayBuffer
@@ -308,7 +308,7 @@ class QueryInstanceLAL_RL(BaseIndexQuery):
         the pytorch device used for the calculations
     
     """
-    def __init__(self, X, y, model_path, n_state_estimation=None, pred_batch=128, device=None):
+    def __init__(self, X, y, model_path, n_state_estimation=None, pred_batch=128, device=None, **kwargs):
         super(QueryInstanceLAL_RL, self).__init__(X, y)
         state_dict = torch.load(model_path, map_location=device)
         self.pred_batch = pred_batch
@@ -322,23 +322,33 @@ class QueryInstanceLAL_RL(BaseIndexQuery):
         self.net.to(device)
         self.net.eval()
 
-    def select(self, label_index, unlabel_index, model=None, batch_size=1):
+    def select(self, label_index, unlabel_index, model=None, batch_size=1, **kwargs):
+        # copy label_index and unlabel_index
+        label_index_copy = copy.deepcopy(label_index)
+        unlabel_index_copy = copy.deepcopy(unlabel_index)
         assert (batch_size > 0)
-        assert (isinstance(unlabel_index, collections.abc.Iterable))
-        if len(unlabel_index) <= batch_size:
-            return unlabel_index
-        assert len(unlabel_index) > self.n_state_estimation
-        unlabel_index = np.asarray(unlabel_index)
+        assert (isinstance(unlabel_index_copy, collections.abc.Iterable))
+        assert (isinstance(label_index_copy, collections.abc.Iterable))
+        if len(unlabel_index_copy) <= batch_size:
+            return unlabel_index_copy
+        assert len(unlabel_index_copy) + len(label_index_copy) >= self.n_state_estimation
+        unlabel_index_copy = np.asarray(unlabel_index_copy)
 
         # initialize the model and train it if necessary
         if model == None:
             model = LogisticRegression()
-            model.fit(self.X[label_index], self.y[label_index])
+            model.fit(self.X[label_index_copy], self.y[label_index_copy])
         
-        # set aside some unlabeled data for the state representation
-        chosen_indices = np.random.choice(len(unlabel_index), size=self.n_state_estimation, replace=False)
-        state_indices = unlabel_index[chosen_indices]
-        unlabel_index = unlabel_index[np.array([x for x in range(len(unlabel_index)) if x not in chosen_indices])]
+        # set aside some unlabeled data for the state representation, the data is removed from the unlabel_index
+        if len(unlabel_index_copy) >= self.n_state_estimation + batch_size:
+            chosen_indices = np.random.choice(len(unlabel_index_copy), size=self.n_state_estimation, replace=False)
+            state_indices = unlabel_index_copy[chosen_indices]
+            unlabel_index_copy = unlabel_index_copy[np.array([x for x in range(len(unlabel_index_copy)) if x not in chosen_indices])]
+
+        # if there isn't enough data then also the label_index is used and the data is not removed from the indicies
+        else:
+            state_indices = np.random.choice(np.concatenate((np.array(label_index_copy), np.array(unlabel_index_copy))), 
+                    size=self.n_state_estimation, replace=False)
 
         # create the state
         predictions = model.predict_proba(self.X[state_indices])[:,0]
@@ -347,14 +357,14 @@ class QueryInstanceLAL_RL(BaseIndexQuery):
         state = predictions[idx]
 
         #create the actions
-        a1 = model.predict_proba(self.X[unlabel_index])[:,0]
+        a1 = model.predict_proba(self.X[unlabel_index_copy])[:,0]
 
         # calculate distances
-        data = self.X[np.concatenate((label_index,unlabel_index),axis=0)]
+        data = self.X[np.concatenate((label_index_copy,unlabel_index_copy),axis=0)]
         distances = scipy.spatial.distance.pdist(data, metric='cosine')
         distances = scipy.spatial.distance.squareform(distances)
-        indeces_known = np.arange(len(label_index))
-        indeces_unknown = np.arange(len(label_index), len(label_index)+len(unlabel_index))
+        indeces_known = np.arange(len(label_index_copy))
+        indeces_unknown = np.arange(len(label_index_copy), len(label_index_copy)+len(unlabel_index_copy))
         a2 = np.mean(distances[indeces_unknown,:][:,indeces_unknown],axis=0)
         a3 = np.mean(distances[indeces_known,:][:,indeces_unknown],axis=0)
 
@@ -377,4 +387,4 @@ class QueryInstanceLAL_RL(BaseIndexQuery):
         idx = idx[:batch_size].detach().cpu().numpy()
 
         # return the correspoding indeces from the unlabeld index
-        return unlabel_index[idx]
+        return unlabel_index_copy[idx]
