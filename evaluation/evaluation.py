@@ -311,11 +311,17 @@ class ExperimentRunner:
         else:
             num_of_queries = 50
 
+        train_idx, test_idx, label_idx, unlabel_idx = self.split()
+
         ex = AlExperiment(self.X,self.y,
             model=sklearn.ensemble.RandomForestClassifier() if model == None else model,
             stopping_criteria="num_of_queries",
             stopping_value=num_of_queries,
-            batch_size=batch_size)
+            batch_size=batch_size,
+            train_idx=train_idx,
+            test_idx=test_idx,
+            label_idx=label_idx,
+            unlabel_idx=unlabel_idx)
         if query_strat == "QueryInstanceBatchBALD":
             ex.set_query_strategy(getattr(query_labels, query_strat), model=ex._model, num_samples=10000, verbose=0)
         elif query_strat == "QueryInstanceLAL_RL":
@@ -339,6 +345,34 @@ class ExperimentRunner:
         self.time_file.write(f"Duration of experiment {diff[:diff.rfind('.')]}\n")
         self.time_file.close()
 
+    def split(self, splitcount=100):
+        train_idx = []
+        test_idx = []
+        label_idx = []
+        unlabel_idx = []
+
+        for i in range(splitcount):
+            successful_test_split = False
+            while not successful_test_split:
+                indecies = np.arange(len(self.y))
+                test_ind = np.random.choice(len(indecies), len(indecies)/2, False)
+                train = [x for x in indecies if x not in test_ind]
+                if (np.unique(self.y[train])) == (np.unique(self.y)):
+                    successful_test_split = True
+
+            unlabel_ind = copy.deepcopy(train)
+            label_ind = []
+
+            for label in np.unique(self.y):
+                init_labeled_index = np.random.choice(np.where(self.y[train] == label)[0], 1)[0]
+                label_ind.append(init_labeled_index)
+                unlabel_ind.remove(init_labeled_index)
+            
+            train_idx.append(copy.deepcopy(train))
+            test_idx.append(copy.deepcopy(test_ind))
+            label_idx.append(copy.deepcopy(label_ind))
+            unlabel_idx.append(copy.deepcopy(unlabel_ind))
+        return train_idx, test_idx, label_idx, unlabel_idx
 
 class ExperimentPlotter:
     def plot_by_given_prefixes(self, directory, prefixes, labels=None, x_axis='num_of_queries', batch_size=None,
