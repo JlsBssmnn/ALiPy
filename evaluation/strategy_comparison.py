@@ -312,12 +312,16 @@ def test_unc_rand2(dataset_path, saving_path, datasets="all"):
         p.set_description("random test on " + dataset)
         data = pickle.load(open(os.path.join(dataset_path, dataset), "rb"))
         X, y = data['X'], data['y']
+
+        os.mkdir(os.path.join(saving_path, dataset[:-2], "random"))
         
         runner = ExperimentRunner(X, y, os.path.join(saving_path, dataset[:-2], "random"), dataset[:-2])
         runner.evaluation("QueryInstanceRandom")
 
 
         p.set_description("uncertainty test on " + dataset)
+
+        os.mkdir(os.path.join(saving_path, dataset[:-2], "uncertainty"))
 
         runner = ExperimentRunner(X, y, os.path.join(saving_path, dataset[:-2], "uncertainty"), dataset[:-2])
         runner.evaluation("QueryInstanceUncertainty")

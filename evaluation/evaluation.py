@@ -328,7 +328,7 @@ class ExperimentRunner:
         ex._performance_metric = f1_score
         ex._metrics = True
 
-        ex.split_AL(test_ratio, initial_label_rate, 1)
+        ex.split_AL(test_ratio, initial_label_rate, 100)
 
         ex.start_query(False, saving_path=self.saving_path, verbose=False)
 
