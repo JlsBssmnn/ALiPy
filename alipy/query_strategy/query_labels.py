@@ -31,6 +31,7 @@ from .base import BaseIndexQuery
 from ..utils.ace_warnings import *
 from ..utils.misc import nsmallestarg, randperm, nlargestarg
 from . import joint_entropy
+from .LAL_RL import QueryInstanceLAL_RL
 
 __all__ = ['QueryInstanceUncertainty',
            'QueryRandom',
@@ -1976,10 +1977,11 @@ class QueryInstanceBatchBALD(BaseIndexQuery):
     y: array-like, optional (default=None)
         Label matrix of the whole dataset. It is a reference which will not use additional memory.
     """
-    def __init__(self, X=None, y=None):
+    def __init__(self, X=None, y=None, verbose=1, **kwargs):
         super(QueryInstanceBatchBALD, self).__init__(X, y)
+        self.verbose = verbose
         
-    def select(self, label_index, unlabel_index, model=None, batch_size=1, num_samples=None, device=None):
+    def select(self, label_index, unlabel_index, model=None, batch_size=1, num_samples=None, device=None, **kwargs):
         """
         Parameters
         ----------
@@ -2050,13 +2052,23 @@ class QueryInstanceBatchBALD(BaseIndexQuery):
         conditional_entropies_N = self.compute_conditional_entropy(log_probs_N_K_C)
     
         batch_joint_entropy = joint_entropy.DynamicJointEntropy(
-            num_samples, batch_size - 1, K, C, dtype=dtype, device=device
+            num_samples, batch_size - 1, K, C, dtype=dtype, device=device, verbose=self.verbose
         )
     
         # We always keep these on the CPU.
         scores_N = torch.empty(N, dtype=torch.double, pin_memory=torch.cuda.is_available())
+
+        if self.verbose >= 1:
+            p_bar = tqdm(total=batch_size, desc="BatchBALD", leave=False)
+            def update():
+                p_bar.update()
+            def close():
+                p_bar.close()
+        else:
+            update = lambda *x : None
+            close = lambda *x : None
     
-        for i in tqdm(range(batch_size), desc="BatchBALD", leave=False):
+        for i in range(batch_size):
             if i > 0:
                 latest_index = candidate_indices[-1]
                 batch_joint_entropy.add_variables(log_probs_N_K_C[latest_index : latest_index + 1])
@@ -2072,7 +2084,10 @@ class QueryInstanceBatchBALD(BaseIndexQuery):
     
             candidate_indices.append(candidate_index.item())
             candidate_scores.append(candidate_score.item())
+
+            update()
     
+        close()
         return candidate_indices
     
     
@@ -2081,15 +2096,22 @@ class QueryInstanceBatchBALD(BaseIndexQuery):
     
         entropies_N = torch.empty(N, dtype=torch.double)
     
-        pbar = tqdm(total=N, desc="Conditional Entropy", leave=False)
+        if self.verbose >= 1:
+            pbar = tqdm(total=N, desc="Conditional Entropy", leave=False)
+            def update():
+                pbar.update()
+            def close():
+                pbar.close()
+        else:
+            update = lambda *x : None
+            close = lambda *x : None
     
         @toma.execute.chunked(log_probs_N_K_C, 1024)
         def compute(log_probs_n_K_C, start: int, end: int):
             nats_n_K_C = log_probs_n_K_C * torch.exp(log_probs_n_K_C)
     
             entropies_N[start:end].copy_(-torch.sum(nats_n_K_C, dim=(1, 2)) / K)
-            pbar.update(end - start)
+            update()
     
-        pbar.close()
-    
+        close()
         return entropies_N

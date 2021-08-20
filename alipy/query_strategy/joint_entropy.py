@@ -35,12 +35,13 @@ class JointEntropy:
 class ExactJointEntropy(JointEntropy):
     joint_probs_M_K: torch.Tensor
 
-    def __init__(self, joint_probs_M_K: torch.Tensor):
+    def __init__(self, joint_probs_M_K: torch.Tensor, verbose=1):
         self.joint_probs_M_K = joint_probs_M_K
+        self.verbose = verbose
 
     @staticmethod
-    def empty(K: int, device=None, dtype=None) -> "ExactJointEntropy":
-        return ExactJointEntropy(torch.ones((1, K), device=device, dtype=dtype))
+    def empty(K: int, device=None, dtype=None, verbose=1) -> "ExactJointEntropy":
+        return ExactJointEntropy(torch.ones((1, K), device=device, dtype=dtype), verbose=verbose)
 
     def compute(self) -> torch.Tensor:
         probs_M = torch.mean(self.joint_probs_M_K, dim=1, keepdim=False)
@@ -74,7 +75,16 @@ class ExactJointEntropy(JointEntropy):
         if output_entropies_B is None:
             output_entropies_B = torch.empty(B, dtype=log_probs_B_K_C.dtype, device=log_probs_B_K_C.device)
 
-        pbar = tqdm(total=B, desc="ExactJointEntropy.compute_batch", leave=False)
+        if self.verbose >= 1:
+            p_bar = tqdm(total=B, desc="ExactJointEntropy.compute_batch", leave=False)
+            def update(x):
+                p_bar.update(x)
+            def close():
+                p_bar.close()
+        else:
+            update = lambda *x : None
+            close = lambda *x : None
+
 
         @toma.execute.chunked(log_probs_B_K_C, initial_step=1024, dimension=0)
         def chunked_joint_entropy(chunked_log_probs_b_K_C: torch.Tensor, start: int, end: int):
@@ -99,9 +109,9 @@ class ExactJointEntropy(JointEntropy):
                 non_blocking=True,
             )
 
-            pbar.update(end - start)
+            update(end - start)
 
-        pbar.close()
+        close()
 
         return output_entropies_B
 
@@ -151,12 +161,13 @@ class SampledJointEntropy(JointEntropy):
 
     sampled_joint_probs_M_K: torch.Tensor
 
-    def __init__(self, sampled_joint_probs_M_K: torch.Tensor):
+    def __init__(self, sampled_joint_probs_M_K: torch.Tensor, verbose=1):
         self.sampled_joint_probs_M_K = sampled_joint_probs_M_K
+        self.verbose = verbose
 
     @staticmethod
-    def empty(K: int, device=None, dtype=None) -> "SampledJointEntropy":
-        return SampledJointEntropy(torch.ones((1, K), device=device, dtype=dtype))
+    def empty(K: int, device=None, dtype=None, verbose=1) -> "SampledJointEntropy":
+        return SampledJointEntropy(torch.ones((1, K), device=device, dtype=dtype), verbose=verbose)
 
     @staticmethod
     def sample(probs_N_K_C: torch.Tensor, M: int) -> "SampledJointEntropy":
@@ -208,7 +219,15 @@ class SampledJointEntropy(JointEntropy):
         if output_entropies_B is None:
             output_entropies_B = torch.empty(B, dtype=log_probs_B_K_C.dtype, device=log_probs_B_K_C.device)
 
-        pbar = tqdm(total=B, desc="SampledJointEntropy.compute_batch", leave=False)
+        if self.verbose >= 1:
+            p_bar = tqdm(total=B, desc="SampledJointEntropy.compute_batch", leave=False)
+            def update(x):
+                p_bar.update(x)
+            def close():
+                p_bar.close()
+        else:
+            update = lambda *x : None
+            close = lambda *x : None
 
         @toma.execute.chunked(log_probs_B_K_C, initial_step=1024, dimension=0)
         def chunked_joint_entropy(chunked_log_probs_b_K_C: torch.Tensor, start: int, end: int):
@@ -234,9 +253,9 @@ class SampledJointEntropy(JointEntropy):
                 non_blocking=True,
             )
 
-            pbar.update(end - start)
+            update(end - start)
 
-        pbar.close()
+        close()
 
         return output_entropies_B
 
@@ -249,12 +268,13 @@ class DynamicJointEntropy(JointEntropy):
     N: int
     M: int
 
-    def __init__(self, M: int, max_N: int, K: int, C: int, dtype=None, device=None):
+    def __init__(self, M: int, max_N: int, K: int, C: int, dtype=None, device=None, verbose=1):
         self.M = M
         self.N = 0
         self.max_N = max_N
+        self.verbose = verbose
 
-        self.inner = ExactJointEntropy.empty(K, dtype=dtype, device=device)
+        self.inner = ExactJointEntropy.empty(K, dtype=dtype, device=device, verbose=verbose)
         self.log_probs_max_N_K_C = torch.empty((max_N, K, C), dtype=dtype, device=device)
 
     def add_variables(self, log_probs_N_K_C: torch.Tensor) -> "DynamicJointEntropy":
