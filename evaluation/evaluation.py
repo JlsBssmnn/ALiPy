@@ -334,8 +334,6 @@ class ExperimentRunner:
         ex._performance_metric = f1_score
         ex._metrics = True
 
-        ex.split_AL(test_ratio, initial_label_rate, 100)
-
         ex.start_query(False, saving_path=self.saving_path, verbose=False)
 
         # write time information
@@ -351,20 +349,20 @@ class ExperimentRunner:
         label_idx = []
         unlabel_idx = []
 
-        for i in range(splitcount):
+        for _ in range(splitcount):
             successful_test_split = False
             while not successful_test_split:
                 indecies = np.arange(len(self.y))
-                test_ind = np.random.choice(len(indecies), len(indecies)/2, False)
+                test_ind = np.random.choice(len(indecies), int(len(indecies)/2), False)
                 train = [x for x in indecies if x not in test_ind]
-                if (np.unique(self.y[train])) == (np.unique(self.y)):
+                if len(np.unique(self.y[train])) == len(np.unique(self.y)):
                     successful_test_split = True
 
             unlabel_ind = copy.deepcopy(train)
             label_ind = []
 
             for label in np.unique(self.y):
-                init_labeled_index = np.random.choice(np.where(self.y[train] == label)[0], 1)[0]
+                init_labeled_index = np.random.choice(np.intersect1d(np.where(self.y == label)[0], train), 1)[0]
                 label_ind.append(init_labeled_index)
                 unlabel_ind.remove(init_labeled_index)
             
