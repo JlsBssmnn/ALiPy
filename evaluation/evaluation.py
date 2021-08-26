@@ -515,15 +515,27 @@ class ExperimentPlotter:
 
     def plot_LAL_RL_scores(self, directory, file_name):
         all_scores = pickle.load(open(directory + "/" + file_name + ".p", "rb"))
+        i = 0
 
         for strat, scores in all_scores.items():
             m_line = np.mean(scores, axis=0)
             var_line = np.var(scores, axis=0)
-            plt.plot(m_line, label = strat)
-            plt.fill_between(range(np.size(m_line)), m_line - var_line, m_line + var_line, alpha=0.3)
-        plt.xlabel("Number of queries")
-        plt.ylabel("Target quality")
-        plt.title("Results")
+            if i == 0:
+                plt.plot(m_line, label = strat, color="blue")
+                plt.fill_between(range(np.size(m_line)), m_line - var_line, m_line + var_line, alpha=0.3, color="blue")
+            elif i == 1:
+                plt.plot(m_line, label = strat, color="black")
+                plt.fill_between(range(np.size(m_line)), m_line - var_line, m_line + var_line, alpha=0.3, color="black")
+            elif i == 2:
+                plt.plot(m_line, label = "LAL-RL", color="red")
+                plt.fill_between(range(np.size(m_line)), m_line - var_line, m_line + var_line, alpha=0.3, color="red")
+            else:
+                plt.plot(m_line, label = strat)
+                plt.fill_between(range(np.size(m_line)), m_line - var_line, m_line + var_line, alpha=0.3)
+            i += 1
+        plt.xlabel("number of annotations")
+        plt.ylabel("% of target quality")
+        plt.title(file_name)
         plt.legend(fancybox=True, framealpha=0.5)
         plt.show()
 
