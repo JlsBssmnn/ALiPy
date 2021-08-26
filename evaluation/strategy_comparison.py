@@ -77,9 +77,9 @@ def train_LAL_RL_strats(dataset_path, saving_path, datasets="all"):
     This function will train LAL_RL strategies on all small datasets
     and saves these strategies to the given saving_path
     """
-    # not using EMNIST and CIFAR-10 because it needs too much memory and time
+    # not using EMNIST, CIFAR-10 and olivetti because it needs too much memory and/or time
     all_datasets = [x for x in os.listdir(dataset_path) if x.endswith(".p") and 
-                        not (x.startswith("EMNIST") or x.startswith("CIFAR10"))]
+                        not (x.startswith("EMNIST") or x.startswith("CIFAR10") or x.startswith("olivetti"))]
     all_datasets = [x[:-2] for x in all_datasets]
 
     assert set(all_datasets).issuperset(set(datasets)) or datasets == "all"
@@ -95,8 +95,8 @@ def train_LAL_RL_strats(dataset_path, saving_path, datasets="all"):
         start_of_round = datetime.now()
 
         learner = LAL_RL_StrategyLearner(dataset_path,
-            [x for x in all_datasets if x != dataset], size=100, quality_method=quality_function)
-        learner.train_query_strategy(saving_path, "LAL_RL_"+dataset, verbose=3)
+            [x for x in all_datasets if x != dataset], size=250, quality_method=quality_function)
+        learner.train_query_strategy(saving_path, "LAL_RL_"+dataset, verbose=2)
 
         end_of_round = datetime.now()
         diff = str(end_of_round - start_of_round)
@@ -106,8 +106,8 @@ def train_LAL_RL_strats(dataset_path, saving_path, datasets="all"):
         p.set_description("learn LAL_RL for all datasets")
         start_of_round = datetime.now()
 
-        learner = LAL_RL_StrategyLearner(dataset_path, all_datasets, size=100, quality_method=quality_function)
-        learner.train_query_strategy(saving_path, "LAL_RL_all_datasets", verbose=3)
+        learner = LAL_RL_StrategyLearner(dataset_path, all_datasets, size=250, quality_method=quality_function)
+        learner.train_query_strategy(saving_path, "LAL_RL_all_datasets", verbose=2)
 
         end_of_round = datetime.now()
         diff = str(end_of_round - start_of_round)
@@ -303,6 +303,46 @@ def initialize(dataset_path, saving_path, datasets="all"):
 
     return all_datasets
 
+def test_LAL_RL2(dataset_path, model_path, saving_path, datasets="all"):
+    """
+    Runs the LAL_RL strategies saved at the model_path on all datasets and saves the result
+    """
+    all_datasets = initialize(dataset_path, saving_path, datasets)
+
+    p = tqdm(total = len(all_datasets))
+    for dataset in all_datasets:
+        p.set_description("LAL_RL test on " + dataset)
+        data = pickle.load(open(os.path.join(dataset_path, dataset), "rb"))
+        X, y = data['X'], data['y']
+
+        os.mkdir(os.path.join(saving_path, dataset[:-2], "LAL_RL"))
+
+        if dataset in ["EMNIST.p", "CIFAR10.p", "olivetti.p"]:
+            model_name = "LAL_RL_all_datasets.pt"
+        else:
+            model_name = "LAL_RL_"+dataset[:-2]+".pt"
+
+        runner = ExperimentRunner(X, y, os.path.join(saving_path, dataset[:-2], "LAL_RL"), dataset[:-2])
+        runner.evaluation("QueryInstanceLAL_RL", model_path=os.path.join(model_path, model_name))
+        p.update()
+    p.close()
+
+def test_batchBALD2(dataset_path, saving_path, datasets="all"):
+    all_datasets = initialize(dataset_path, saving_path, datasets)
+
+    p = tqdm(total = len(all_datasets))
+    for dataset in all_datasets:
+        p.set_description("batchBALD test on " + dataset)
+        data = pickle.load(open(os.path.join(dataset_path, dataset), "rb"))
+        X, y = data['X'], data['y']
+
+        os.mkdir(os.path.join(saving_path, dataset[:-2], "batchBALD"))
+
+        model=batchBALD_Model(BayesianRandomForest(dropout_rate=0.3))
+        runner = ExperimentRunner(X, y, os.path.join(saving_path, dataset[:-2], "batchBALD"), dataset[:-2])
+        runner.evaluation("QueryInstanceBatchBALD", model=model)
+        p.update()
+    p.close()
 
 def test_unc_rand2(dataset_path, saving_path, datasets="all"):
     all_datasets = initialize(dataset_path, saving_path, datasets)
