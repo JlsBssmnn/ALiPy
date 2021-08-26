@@ -327,7 +327,7 @@ class ExperimentRunner:
         elif query_strat == "QueryInstanceLAL_RL":
             ex.set_query_strategy(getattr(query_labels, query_strat), model=ex._model, model_path=model_path)
         else:
-            ex.set_query_strategy(getattr(query_labels, query_strat))
+            ex.set_query_strategy(getattr(query_labels, query_strat), model=ex._model)
 
         # set f1 score as the metric
         ex._performance_metric_name = "f1_score"

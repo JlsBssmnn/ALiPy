@@ -113,13 +113,13 @@ class QueryInstanceUncertainty(BaseIndexQuery):
 
     """
 
-    def __init__(self, X=None, y=None, measure='entropy'):
+    def __init__(self, X=None, y=None, measure='entropy', **kwargs):
         if measure not in ['least_confident', 'margin', 'entropy', 'distance_to_boundary']:
             raise ValueError("measure must be one of ['least_confident', 'margin', 'entropy', 'distance_to_boundary']")
         self.measure = measure
         super(QueryInstanceUncertainty, self).__init__(X, y)
 
-    def select(self, label_index, unlabel_index, model=None, batch_size=1):
+    def select(self, label_index, unlabel_index, model=None, batch_size=1, **kwargs):
         """Select indexes from the unlabel_index for querying.
 
         Parameters
@@ -268,7 +268,7 @@ class QueryRandom(BaseIndexQuery):
     The random strategy has been re-named to QueryInstanceRandom,
     this class will be deleted in v1.0.5.
     """
-    def __init__(self, X=None, y=None):
+    def __init__(self, X=None, y=None, **kwargs):
         warnings.warn("QueryRandom will be deleted in the future. Use QueryInstanceRandom instead.",
                       category=DeprecationWarning)
         super(QueryRandom, self).__init__(X, y)
