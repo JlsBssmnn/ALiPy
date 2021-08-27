@@ -554,6 +554,74 @@ class ExperimentPlotter:
 
         np.save(join(destination, name), method_data)
 
+    def create_AUC_scores(self, path, destination):
+        """
+        Creates a csv at given destination that contains the F1-AUC-scores for all datasets and strategies.
+        Note that the file structure needs to be in a specific format.
+        """
+        all_datasets = [x for x in os.listdir(path) if os.path.isdir(join(path, x))]
+        auc_scores = dict()
+
+        for dataset in sorted(all_datasets):
+            file_names = [x for x in os.listdir(join(path, dataset)) if os.path.isfile(join(path, dataset, x))]
+            if len(file_names) < 4:
+                continue
+            auc_scores[dataset] = [-1]*4
+            for name in file_names:
+                data, _ = self.get_numpy_array_data(join(path, dataset, name))
+                x_axis = np.arange(len(data), dtype=int)
+                auc_score = metrics.auc(x_axis, data) / metrics.auc(x_axis, np.ones(len(x_axis)))
+                if name == "uncertainty.npy":
+                    i = 0
+                elif name == "random.npy":
+                    i = 1
+                elif name == "batchBALD.npy":
+                    i = 2
+                elif name == "LAL_RL.npy":
+                    i = 3
+                else:
+                    continue
+                auc_scores[dataset][i] = auc_score * 100
+
+        auc_scores = {key: value for key, value in sorted(auc_scores.items(), key=lambda x: x[0].lower())}
+        dataframe = pd.DataFrame.from_dict(auc_scores, orient='index', columns=["uncertainty", "random", "batchBALD", "LAL_RL"])
+        dataframe.to_csv(join(destination, "f1_auc_scores.csv"))
+
+    def create_time_information(self, path, destination):
+        """
+        Creates a csv at given destination that contains the F1-AUC-scores for all datasets and strategies.
+        Note that the file structure needs to be in a specific format.
+        """
+        all_datasets = [x for x in os.listdir(path) if os.path.isdir(join(path, x))]
+        timing_info = dict()
+
+        for dataset in sorted(all_datasets):
+            strategies = [x for x in os.listdir(join(path, dataset)) if os.path.isdir(join(path, dataset, x))]
+            if len(strategies) < 1:
+                continue
+            timing_info[dataset] = [""]*len(strategies)
+            for strategy in strategies:
+                try:
+                    f = open(join(path, dataset, strategy, "time_info.txt"), "r")
+                except FileNotFoundError:
+                    continue
+                if strategy == "uncertainty":
+                    i = 0
+                elif strategy == "random":
+                    i = 1
+                elif strategy == "batchBALD":
+                    i = 2
+                elif strategy == "LAL_RL":
+                    i = 3
+                else:
+                    continue
+                timing_info[dataset][i] = f.readlines()[2][23:-1]
+
+        timing_info = {key: value for key, value in sorted(timing_info.items(), key=lambda x: x[0].lower())}
+        dataframe = pd.DataFrame.from_dict(timing_info, orient='index', columns=["uncertainty", "random", "batchBALD", "LAL_RL"])
+        dataframe.to_csv(join(destination, "time_info.csv"))
+
+
 def run_experiment(X,y,strategies=["QueryInstanceUncertainty"],num_splits=5,num_of_queries=20,batch_size=1,
                     test_ratio=0.3, initial_label_rate=0.1, saving_path=None, show_results=True):
     n_strategies = len(strategies)
