@@ -240,7 +240,10 @@ class batchBALD_Model:
         return self.classifier.fit(X,y)
         
     def predict(self, X):
-        return self.classifier.predict(X)
+        self.classifier.activate_dropout()
+        pred = self.classifier.predict(X)
+        self.classifier.deactivate_dropout()
+        return pred
 
     def predict_proba(self, X):
         self.classifier.activate_dropout()
@@ -338,7 +341,7 @@ def test_batchBALD2(dataset_path, saving_path, datasets="all"):
 
         os.mkdir(os.path.join(saving_path, dataset[:-2], "batchBALD"))
 
-        model=batchBALD_Model(BayesianRandomForest(dropout_rate=0.3))
+        model=batchBALD_Model(BayesianRandomForest(dropout_rate=0.5, n_estimators=200))
         runner = ExperimentRunner(X, y, os.path.join(saving_path, dataset[:-2], "batchBALD"), dataset[:-2])
         runner.evaluation("QueryInstanceBatchBALD", model=model)
         p.update()
