@@ -599,7 +599,7 @@ class ExperimentPlotter:
             strategies = [x for x in os.listdir(join(path, dataset)) if os.path.isdir(join(path, dataset, x))]
             if len(strategies) < 1:
                 continue
-            timing_info[dataset] = [""]*len(strategies)
+            timing_info[dataset] = [""]*len(strategies) # might be problematic
             for strategy in strategies:
                 try:
                     f = open(join(path, dataset, strategy, "time_info.txt"), "r")
@@ -615,7 +615,11 @@ class ExperimentPlotter:
                     i = 3
                 else:
                     continue
-                timing_info[dataset][i] = f.readlines()[2][23:-1]
+                try:
+                    time = f.readlines()[2][23:-1]
+                except:
+                    time = "-1"
+                timing_info[dataset][i] = time
 
         timing_info = {key: value for key, value in sorted(timing_info.items(), key=lambda x: x[0].lower())}
         dataframe = pd.DataFrame.from_dict(timing_info, orient='index', columns=["uncertainty", "random", "batchBALD", "LAL_RL"])
