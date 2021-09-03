@@ -443,18 +443,26 @@ class ExperimentPlotter:
     def plot_by_labeled_data(self, analyser, method_names, batch_sizes, plot_exact_values=False, fill="std"):
         values = []
         std_values = []
+
+        plt.rc("font", size=15)
+        plt.rc('axes', labelsize=20) 
+        plt.rc('xtick', labelsize=20) 
+        plt.rc('ytick', labelsize=20) 
+        plt.rcParams['figure.figsize'] = [14.3, 9.5]
+        
         auc = dict()
         for j in range(len(method_names)):
             method_data = analyser.get_extracted_data(method_names[j])
             values.append(np.mean(method_data, axis=0))
             std_values.append(np.std(method_data, axis=0))
 
+        colors = ["orangered", "darkgreen", "violet"]
         for j in range(len(method_names)):
             x_axis = np.arange(0, (len(values[j])-1)*batch_sizes[j] + 1, batch_sizes[j],int)
-            plt.plot(x_axis, values[j], label=method_names[j])
+            plt.plot(x_axis, values[j], label=method_names[j], color=colors[j], lw=2)
             if fill == "standard_error":
                 std_values[j] /= np.sqrt(values[j].shape[0])
-            plt.fill_between(x_axis, values[j] + std_values[j], values[j] - std_values[j], alpha=0.3)
+            plt.fill_between(x_axis, values[j] + std_values[j], values[j] - std_values[j], alpha=0.3, color=colors[j])
             auc[method_names[j]] = metrics.auc(x_axis, values[j]) / metrics.auc(x_axis, np.ones(len(x_axis)))
 
             if plot_exact_values:
@@ -468,7 +476,11 @@ class ExperimentPlotter:
         plt.xlabel("Acquired dataset size")
         plt.ylabel("Accuracy")
         plt.title("Results")
-        plt.legend(fancybox=True, framealpha=0.5)
+        plt.legend(fancybox=True, framealpha=0.5, fontsize=20)
+        plt.xlim(0,250)
+        plt.grid()
+        axes = plt.axes()
+        axes.set_yticks(np.arange(0.55, 1, 0.05))
         plt.show()
         return values
 
@@ -511,30 +523,37 @@ class ExperimentPlotter:
         else:
             return np.mean(array[:,:num_queries+1], axis=0), np.std(array[:,:num_queries+1], axis=0)
 
-    def plot_LAL_RL_scores(self, directory, file_name):
+    def plot_LAL_RL_scores(self, directory, file_name, strategy_names=None, colors=None, xlabel=None, ylabel=None, title=None,
+        min_x=None, max_x=None, lw=1):
         all_scores = pickle.load(open(directory + "/" + file_name + ".p", "rb"))
         i = 0
 
-        for strat, scores in all_scores.items():
-            m_line = np.mean(scores, axis=0)
-            var_line = np.var(scores, axis=0)
-            if i == 0:
-                plt.plot(m_line, label = strat, color="blue")
-                plt.fill_between(range(np.size(m_line)), m_line - var_line, m_line + var_line, alpha=0.3, color="blue")
-            elif i == 1:
-                plt.plot(m_line, label = strat, color="black")
-                plt.fill_between(range(np.size(m_line)), m_line - var_line, m_line + var_line, alpha=0.3, color="black")
-            elif i == 2:
-                plt.plot(m_line, label = "LAL-RL", color="red")
-                plt.fill_between(range(np.size(m_line)), m_line - var_line, m_line + var_line, alpha=0.3, color="red")
-            else:
-                plt.plot(m_line, label = strat)
+        plt.rc("font", size=15)
+        plt.rc('axes', labelsize=25) 
+        plt.rc('xtick', labelsize=25) 
+        plt.rc('ytick', labelsize=25) 
+        plt.rcParams['figure.figsize'] = [11, 7.3]
+
+        if strategy_names is not None and colors is not None:
+            assert len(all_scores) == len(strategy_names) == len(colors)
+            i = 0
+            for strat, scores in all_scores.items():
+                m_line = np.mean(scores, axis=0) * 100
+                var_line = np.var(scores, axis=0) * 100
+                plt.plot(m_line, label = strategy_names[i], color=colors[i], lw=lw)
+                plt.fill_between(range(np.size(m_line)), m_line - var_line, m_line + var_line, alpha=0.3, color=colors[i])
+                i += 1
+        else:
+            for strat, scores in all_scores.items():
+                m_line = np.mean(scores, axis=0) * 100
+                var_line = np.var(scores, axis=0) * 100
+                plt.plot(m_line, label = strat, lw=lw)
                 plt.fill_between(range(np.size(m_line)), m_line - var_line, m_line + var_line, alpha=0.3)
-            i += 1
-        plt.xlabel("number of annotations")
-        plt.ylabel("% of target quality")
-        plt.title(file_name)
-        plt.legend(fancybox=True, framealpha=0.5)
+        plt.xlabel("number of annotations" if xlabel == None else xlabel)
+        plt.ylabel("% of target quality" if ylabel == None else ylabel)
+        plt.title(file_name if title == None else title, fontsize=30)
+        plt.legend(fancybox=True, framealpha=0.5, fontsize=20)
+        plt.xlim(-3 if min_x == None else min_x, 100 if max_x == None else max_x)
         plt.show()
 
     def alipy_states_to_numpy(self, directory, destination, name):
