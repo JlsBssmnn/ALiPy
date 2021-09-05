@@ -580,17 +580,21 @@ class ExperimentPlotter:
         """
         all_datasets = [x for x in os.listdir(path) if os.path.isdir(join(path, x))]
         auc_scores = dict()
+        pd_columns = []
 
         for dataset in sorted(all_datasets):
-            file_names = [x for x in os.listdir(join(path, dataset)) if os.path.isfile(join(path, dataset, x))]
-            if len(file_names) < 4:
-                continue
-            auc_scores[dataset] = [-1]*4
+            file_names = [x for x in os.listdir(join(path, dataset)) if os.path.isfile(join(path, dataset, x))
+                                and x.endswith(".npy")]
+            auc_scores[dataset] = [-1]*len(file_names)
+            if len(pd_columns) == 0 and len(file_names) != 0:
+                pd_columns = [x[:-4] for x in file_names]
             for name in file_names:
                 data, _ = self.get_numpy_array_data(join(path, dataset, name))
                 x_axis = np.arange(len(data), dtype=int)
                 auc_score = metrics.auc(x_axis, data) / metrics.auc(x_axis, np.ones(len(x_axis)))
-                if name == "uncertainty.npy":
+                if len(file_names) == 1:
+                    i = 0
+                elif name == "uncertainty.npy":
                     i = 0
                 elif name == "random.npy":
                     i = 1
@@ -603,7 +607,7 @@ class ExperimentPlotter:
                 auc_scores[dataset][i] = auc_score * 100
 
         auc_scores = {key: value for key, value in sorted(auc_scores.items(), key=lambda x: x[0].lower())}
-        dataframe = pd.DataFrame.from_dict(auc_scores, orient='index', columns=["uncertainty", "random", "batchBALD", "LAL_RL"])
+        dataframe = pd.DataFrame.from_dict(auc_scores, orient='index', columns=pd_columns)
         dataframe.to_csv(join(destination, "f1_auc_scores.csv"))
 
     def create_time_information(self, path, destination):
